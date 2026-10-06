@@ -65,12 +65,12 @@ all at once with the cheat.
 
 ## Levels
 
-14 so far: 10 **Fun** levels that teach one skill each (dig, climb, block,
-build, float, bash, mine, bomb, climber + floater, building a staircase in
-three goes), then 4 **Tricky** ones (a squasher trap, steel, a bridge that
-needs a blocker and a bomber, and a tour of everything). `npm test` plays every
-level's solution to prove it can be done, and plays each one with no skills to
-prove the skills are needed.
+16 so far. 10 **Fun** levels teach one skill each: dig, climb, block, build,
+float, bash, mine, bomb, climber + floater, and a staircase built in three
+goes. 5 **Tricky** ones: a squasher trap, steel, one-way arrows, a bridge that
+needs a blocker and a bomber, and a tour of everything. 1 **Taxing** one: four
+staircases over a fire pit. `npm test` plays every level's solution to prove it
+can be done, and plays each one with no skills to prove the skills are needed.
 
 To add a level, add it to `src/game/levels.js`: terrain is a list of shapes
 and objects (see `src/game/level.js`), and `solution` says which skill to give
