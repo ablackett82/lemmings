@@ -1,0 +1,12 @@
+{
+  "name": "lemmings",
+  "version": "0.1.0",
+  "description": "Browser reimplementation of the 1991 DOS game Lemmings",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/serve.js",
+    "test": "node --test test/*.test.js"
+  },
+  "license": "UNLICENSED"
+}
