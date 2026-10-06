@@ -248,3 +248,12 @@ test('a lemming can be given a skill only if the DOS rules allow it', () => {
   g.assist.unlimitedSkills = true;
   assert.equal(g.canAssign('floater', L, null), L, 'unless the cheat is on');
 });
+
+test('one-way arrows: a basher can go the way they point, not against them', () => {
+  for (const [dir, ok] of [[-1, true], [1, false]]) {
+    const x = dir === 1 ? 40 : 110;
+    const { g, L } = setup([floor(), ['rect', 60, 70, 30, 30]], { x, dx: dir, objects: [['oneway', 60, 70, 30, 30, 'left']] });
+    for (let i = 0; i < 12; i++) g.step();
+    assert.equal(g.canAssign('basher', L, null) === L, ok, `facing ${dir}`);
+  }
+});

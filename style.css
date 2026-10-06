@@ -92,3 +92,13 @@ html, body {
 }
 #ui .ui-bar button { font-size: 18px; padding: 12px 22px; background: rgba(0, 0, 0, 0.75); }
 #ui .ui-bar button.main { background: var(--green); color: #000; }
+
+/* the game is landscape: on a touch screen held upright, say so */
+#rotate { display: none; }
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate {
+    display: block; position: fixed; left: 0; right: 0; bottom: calc(var(--sat-b) + 24px);
+    text-align: center; color: var(--green); font: 18px ui-monospace, Menlo, Consolas, monospace;
+    text-transform: uppercase; letter-spacing: 0.08em; pointer-events: none;
+  }
+}
