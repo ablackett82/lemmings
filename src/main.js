@@ -480,10 +480,25 @@ function main() {
 
   // audio can only start from a user gesture on iOS
   for (const ev of ['keydown', 'pointerdown', 'pointerup', 'touchend', 'click']) window.addEventListener(ev, () => sound.unlock(), { passive: true, capture: true });
+  // iOS: play through the silent switch, as a game should
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* older iOS */ }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && mode === 'play') { paused = true; music.stop(); }
-    if (!document.hidden) { sound.unlock(); if (mode === 'play' && opts.music) music.start(levelNo); }
+    if (!document.hidden) {
+      sound.unlock(); if (mode === 'play' && opts.music) music.start(levelNo);
+      navigator.serviceWorker?.getRegistration().then((r) => r?.update()).catch(() => {}); // a home-screen app can stay open for days
+    }
   });
+
+  // a new version: switch to it now (or when this level's over), not next time
+  const sw = navigator.serviceWorker;
+  if (sw?.controller) {
+    let reloadDue = false;
+    sw.addEventListener('controllerchange', () => { reloadDue = true; });
+    setInterval(() => { if (reloadDue && mode !== 'play') location.reload(); }, 1000);
+  }
+  // which version this is, in settings
+  (window.caches?.keys() ?? Promise.resolve([])).then((k) => ui.setVersion(k.find((n) => n.startsWith('lemmings-'))?.replace('lemmings-', '') ?? 'dev')).catch(() => {});
 }
 
 try { main(); } catch (err) {

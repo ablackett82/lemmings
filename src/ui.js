@@ -46,6 +46,7 @@ export class UI {
         <h3>Cheats</h3>
         ${CHEAT_LIST.map(([k, t]) => `<label><input data-opt="${k}" type="checkbox"> ${t}</label>`).join('')}
         <p class="ui-note">A level only gets its tick when it's done with no cheats on (slow speed is fine).</p>
+        <p class="ui-note ui-version"></p>
         <button class="ui-close" type="button">Done</button>
       </div>
       <div class="ui-panel ui-levels" hidden>
@@ -103,6 +104,8 @@ export class UI {
     this.q('[data-opt="pack"]').disabled = !levels;
     if (!levels) this.q('[data-opt="pack"]').value = 'new';
   }
+
+  setVersion(v) { this.q('.ui-version').textContent = `Version ${v}`; }
 
   /** Whether the in-game menu button shows. */
   setPlaying(on) { this.el.classList.toggle('ui-playing', on); }
