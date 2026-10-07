@@ -148,37 +148,55 @@ function main() {
   // ---- the menus ----
   ui.on.option = setOption;
 
-  // ---- the DOS game's files ----
-  function useDos(files) {
+  // ---- the original games' files: DOS for the levels and graphics, Windows 95 for the sounds and music ----
+  let gameFiles = {};
+  function useFiles(files) {
+    gameFiles = files;
+    sound.setSamples(files);
+    music.setTunes(files);
+    dos = null; packs.dos.list = [];
+    if (!files['main.dat']) return;
     dos = new DosData(files);
     dos.build(0); // fails here, not mid-game, if the files are wrong
     packs.dos.list = dos.levels;
   }
   function dosStatus(msg) {
-    ui.setDos(dos ? msg ?? `Loaded: the ${dos.levels.length} original levels.` : msg ?? 'Not loaded. Pick the .DAT files from your copy of DOS Lemmings (or a .zip of them).', !!dos);
+    const parts = [];
+    if (dos) parts.push(`the ${dos.levels.length} original levels`);
+    if (sound.hasSamples) parts.push('the sounds');
+    if (music.midi.length) parts.push(`${music.midi.length} tunes`);
+    const said = parts.length ? `Loaded: ${parts.join(', ').replace(/, ([^,]*)$/, ' and $1')}.` : 'Not loaded.';
+    const need = !dos ? ' For the original levels, pick the .DAT files from DOS Lemmings (or a .zip of them).'
+      : !sound.hasSamples ? ' For the original sounds and music, also load the Windows 95 version (its .zip, or its SOUND and MUSIC files).' : '';
+    ui.setDos(msg ?? said + need, !!dos, parts.length > 0);
     if (dos) ui.setOptions(opts);
   }
   dosFiles.loadSaved().then((files) => {
     if (!files) return;
-    try { useDos(files); } catch (err) { dos = null; dosStatus(`Couldn't read the saved files: ${err.message}`); return; }
+    try { useFiles(files); } catch (err) { dos = null; dosStatus(`Couldn't read the saved files: ${err.message}`); return; }
     dosStatus();
     if (opts.pack === 'dos' && mode === 'title') { usePack(); toTitle(); }
-  }).catch(() => {}).finally(() => { if (!dos) dosStatus(); });
+  }).catch(() => {}).finally(() => { if (!dos && !sound.hasSamples) dosStatus(); });
   ui.on.loadFiles = async (list) => {
     dosStatus('Reading...');
+    const before = gameFiles;
     try {
-      const { files, missing } = await dosFiles.readPicked(list);
-      if (missing.length) { dosStatus(`Still needed: ${missing.map((n) => n.toUpperCase()).join(', ')}. Pick them all at once (or a .zip with them in).`); return; }
-      useDos(files);
+      const { files, added } = await dosFiles.readPicked(list, gameFiles);
+      if (!added) { dosStatus('None of those are files the game uses. Pick the files from DOS Lemmings or Windows 95 Lemmings, or a .zip of them.'); return; }
+      const hadDos = !!dos;
+      useFiles(files);
       await dosFiles.save(files).catch(() => {});
-      opts.pack = 'dos'; store.set('opts', opts); ui.setOptions(opts);
+      if (dos && !hadDos) { opts.pack = 'dos'; store.set('opts', opts); ui.setOptions(opts); }
       dosStatus();
       usePack(); toTitle();
-    } catch (err) { dos = null; packs.dos.list = []; dosStatus(`Those files didn't work: ${err.message}`); }
+    } catch (err) {
+      try { useFiles(before); } catch { /* the old ones worked before */ }
+      dosStatus(`Those files didn't work: ${err.message}`);
+    }
   };
   ui.on.forgetFiles = async () => {
     await dosFiles.forget();
-    dos = null; packs.dos.list = [];
+    useFiles({});
     dosStatus('Removed from this device.');
     usePack(); toTitle();
   };

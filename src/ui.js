@@ -42,7 +42,7 @@ export class UI {
           <button class="ui-dos-forget" type="button">Remove</button>
         </div>
         <input class="ui-dos-pick" type="file" multiple hidden>
-        <p class="ui-note">The original levels, graphics and lemmings come from your own copy of DOS Lemmings: MAIN.DAT, ODDTABLE.DAT, LEVEL000-009.DAT, GROUND0-4O.DAT, VGAGR0-4.DAT and VGASPEC0-3.DAT. They stay on this device.</p>
+        <p class="ui-note">The original levels, graphics and lemmings come from your own copy of DOS Lemmings: MAIN.DAT, ODDTABLE.DAT, LEVEL000-009.DAT, GROUND0-4O.DAT, VGAGR0-4.DAT and VGASPEC0-3.DAT. The sounds ("Oh no!") and music come from Windows 95 Lemmings: the .WAV files in its SOUND folder and the .MID files in MUSIC. Load either or both, or a .zip of them; they stay on this device.</p>
         <h3>Cheats</h3>
         ${CHEAT_LIST.map(([k, t]) => `<label><input data-opt="${k}" type="checkbox"> ${t}</label>`).join('')}
         <p class="ui-note">A level only gets its tick when it's done with no cheats on (slow speed is fine).</p>
@@ -96,12 +96,12 @@ export class UI {
     }
   }
 
-  /** The original game's files: a line saying how they are, and whether they're loaded. */
-  setDos(status, loaded) {
+  /** The original games' files: a line saying what's loaded; levels: the DOS levels are; any: anything is. */
+  setDos(status, levels, any = levels) {
     this.q('.ui-dos-status').textContent = status;
-    this.q('.ui-dos-forget').hidden = !loaded;
-    this.q('[data-opt="pack"]').disabled = !loaded;
-    if (!loaded) this.q('[data-opt="pack"]').value = 'new';
+    this.q('.ui-dos-forget').hidden = !any;
+    this.q('[data-opt="pack"]').disabled = !levels;
+    if (!levels) this.q('[data-opt="pack"]').value = 'new';
   }
 
   /** Whether the in-game menu button shows. */

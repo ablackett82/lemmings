@@ -92,7 +92,14 @@ They're kept on the device (IndexedDB) and never uploaded; **Levels** in
 settings switches between the original levels and the new ones, each with its
 own ticks. The files are never part of this repository (`reference/` is
 ignored); on localhost the dev server's copy in `reference/lemming1.pc` is used
-when nothing has been loaded. The sounds and music are still the new ones.
+when nothing has been loaded.
+
+The sounds and music can come from the Windows 95 version: its `SOUND\*.WAV`
+(the voices, "Let's go!", "Oh no!", "Yippee!", and the traps' own sounds)
+and `MUSIC\*.MID` (15 tunes, played on a small General MIDI synth in
+`src/render/gm.js`). Load them the same way, with the DOS files or after them
+(its zip works as it is; its own GROUND files are ignored). Without them the
+game uses its synthesized sounds and tunes.
 
 `src/dos/` reads them: `dat.js` unpacks the .DAT compression, `dosdata.js`
 reads the levels, graphic sets, sprites, masks and panel (formats as

@@ -335,7 +335,7 @@ export class Game {
       if (!o.triggered) {
         o.triggered = true;
         this.removeLemming(L);
-        this.events.push('trap');
+        this.events.push(o.def.sound ? `trap${o.def.sound}` : 'trap'); // the DOS trap's own sound
       }
       return;
     }

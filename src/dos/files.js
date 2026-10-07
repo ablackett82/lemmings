@@ -5,6 +5,12 @@
 // when nothing has been loaded.
 
 import { NEEDED } from './dosdata.js';
+import { SOUND_FILES } from '../render/audio.js';
+import { MIDI_FILES } from '../render/music.js';
+
+/** The Windows 95 version's sounds and music: used when they're there too. */
+export const EXTRA = [...SOUND_FILES, ...MIDI_FILES];
+const WANTED = new Set([...NEEDED, ...EXTRA]);
 
 const DB = 'lemmings-dos', STORE = 'files', KEY = 'vga';
 
@@ -37,13 +43,11 @@ export async function loadSaved() {
 }
 
 async function fetchDev() {
+  const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(url); return new Uint8Array(await r.arrayBuffer()); };
   const files = {};
-  for (const n of NEEDED) {
-    try {
-      const r = await fetch(`reference/lemming1.pc/${n}`);
-      if (!r.ok) return null;
-      files[n] = new Uint8Array(await r.arrayBuffer());
-    } catch { return null; }
+  try { for (const n of NEEDED) files[n] = await get(`reference/lemming1.pc/${n}`); } catch { return null; }
+  for (const n of EXTRA) {
+    try { files[n] = await get(`reference/win95/Lemmings_95/${n.endsWith('.mid') ? 'MUSIC' : 'SOUND'}/${n.toUpperCase()}`); } catch { /* optional */ }
   }
   return files;
 }
@@ -58,22 +62,26 @@ export async function forget() {
 }
 
 /**
- * The game's files from what the player picked (File objects: .DAT files
- * and/or .zip files). Returns { files, missing: [names] }.
+ * The game's files from what the player picked (File objects: .DAT, .WAV and
+ * .MID files and/or .zip files), added to the ones already loaded (`have`).
+ * Returns { files, missing: [names], added: count }.
  */
-export async function readPicked(list) {
-  const files = {};
-  const take = (name, data) => {
-    const base = name.split(/[\\/]/).pop().toLowerCase();
-    if (NEEDED.includes(base) && !files[base]) files[base] = data;
-  };
+export async function readPicked(list, have = {}) {
+  const base = (name) => name.split(/[\\/]/).pop().toLowerCase();
+  const picked = [];
   for (const f of list) {
     const data = new Uint8Array(await f.arrayBuffer());
     if (/\.zip$/i.test(f.name) || (data[0] === 0x50 && data[1] === 0x4b)) {
-      for (const [name, bytes] of await unzip(data, (n) => NEEDED.includes(n.split(/[\\/]/).pop().toLowerCase()))) take(name, bytes);
-    } else take(f.name, data);
+      for (const [name, bytes] of await unzip(data, (n) => WANTED.has(base(n)))) picked.push([base(name), bytes]);
+    } else if (WANTED.has(base(f.name))) picked.push([base(f.name), data]);
   }
-  return { files, missing: NEEDED.filter((n) => !files[n]) };
+  // the DOS game's .DAT files only come with its MAIN.DAT: the Windows 95
+  // version has its own GROUND?O.DAT files, which mustn't replace the DOS ones
+  const dosToo = picked.some(([n]) => n === 'main.dat');
+  const files = { ...have };
+  let added = 0;
+  for (const [n, data] of picked) if (dosToo || !NEEDED.includes(n)) { files[n] = data; added++; }
+  return { files, missing: NEEDED.filter((n) => !files[n]), added };
 }
 
 /** The entries of a zip file that `want(name)` picks: [[name, Uint8Array]]. */

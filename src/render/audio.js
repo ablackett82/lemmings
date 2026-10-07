@@ -1,6 +1,19 @@
-// Sound. The DOS game plays sampled sounds (and "Let's go!" and "Oh no!" in a
-// lemming's voice); these are synthesized stand-ins for each one, played from
-// the game's events.
+// Sound, played from the game's events. With the Windows 95 version's sound
+// files loaded, the original recordings ("Let's go!", "Oh no!", "Yippee!",
+// the splats, the traps); without them, synthesized stand-ins.
+
+import { readWav } from '../dos/wav.js';
+
+// event: the Windows 95 sound file for it
+const SAMPLES = {
+  letsgo: 'letsgo.wav', door: 'door.wav', assign: 'mousepre.wav', tick: 'changeop.wav', yippee: 'yippee.wav',
+  splat: 'splat.wav', ohno: 'ohno.wav', explode: 'explode.wav', drown: 'glug.wav', fry: 'fire.wav',
+  steel: 'chink.wav', buildwarn: 'ting.wav',
+  // the traps, by the sound number in the graphic set: electric, crusher, rope, 10 tons, bear trap
+  trap6: 'electric.wav', trap7: 'thunk.wav', trap9: 'chain.wav', trap14: 'tenton.wav', trap15: 'mantrap.wav',
+};
+/** The sound files used, for the loader. */
+export const SOUND_FILES = [...new Set(Object.values(SAMPLES))];
 
 export class Sound {
   constructor() {
@@ -8,6 +21,42 @@ export class Sound {
     this.muted = false;
     this.noiseBuf = null;
     this.music = null;
+    this.wavs = {};      // name: { rate, data }
+    this.buffers = {};   // name: AudioBuffer
+  }
+
+  /** The Windows 95 sound files ({ 'ohno.wav': Uint8Array, ... }), or none. */
+  setSamples(files) {
+    this.wavs = {}; this.buffers = {};
+    for (const name of SOUND_FILES) {
+      if (!files?.[name]) continue;
+      try { this.wavs[name] = readWav(files[name]); } catch { /* leave that one synthesized */ }
+    }
+  }
+  get hasSamples() { return Object.keys(this.wavs).length > 0; }
+
+  /** A recording as an AudioBuffer at the context's own rate (resampled here: Safari won't take 3-11 kHz buffers). */
+  buffer(name) {
+    if (this.buffers[name]) return this.buffers[name];
+    const w = this.wavs[name];
+    if (!w) return null;
+    const rate = this.ctx.sampleRate, k = w.rate / rate, n = Math.max(1, Math.floor(w.data.length / k));
+    const buf = this.ctx.createBuffer(1, n, rate), out = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) {
+      const x = i * k, j = Math.floor(x), t = x - j;
+      out[i] = (w.data[j] ?? 0) * (1 - t) + (w.data[j + 1] ?? w.data[j] ?? 0) * t;
+    }
+    return (this.buffers[name] = buf);
+  }
+
+  sample(name) {
+    const buf = this.buffer(name);
+    if (!buf) return false;
+    const s = this.ctx.createBufferSource(), g = this.ctx.createGain();
+    s.buffer = buf; g.gain.value = 1.6;
+    s.connect(g).connect(this.out);
+    s.start();
+    return true;
   }
 
   /** Must be called from a user gesture on iOS. */
@@ -37,7 +86,10 @@ export class Sound {
   /** The game's events from the iterations just run. */
   play(events) {
     if (!this.ready) return;
-    for (const e of new Set(events)) this[e]?.();
+    for (const e of new Set(events)) {
+      if (SAMPLES[e] && this.sample(SAMPLES[e])) continue;
+      (this[e] ?? (e.startsWith('trap') ? this.trap : null))?.call(this);
+    }
   }
 
   tone(type, f0, f1, dur, vol = 0.5, at = 0) {
