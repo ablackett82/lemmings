@@ -485,7 +485,7 @@ export class Game {
       return true;
     }
     if (index >= 2 && index <= 5) {
-      this.applyMask(MASKS.bash[index - 2], L.rtl, L.x - 8, L.y - 10);
+      this.applyDirMask('bash', index - 2, L.rtl, L.x - 8, L.y - 10);
       // frame 5 (not 21): nothing left in front? stop bashing
       if (L.frame === 5) {
         let n = 0, x = L.x + L.dx * 8;
@@ -497,8 +497,8 @@ export class Game {
   }
 
   mining(L) {
-    if (L.frame === 1) { this.applyMask(MASKS.mine[0], L.rtl, L.x - 8, L.y - 13); return false; }
-    if (L.frame === 2) { this.applyMask(MASKS.mine[1], L.rtl, L.x + L.dx - 8, L.y + 1 - 13); return false; }
+    if (L.frame === 1) { this.applyDirMask('mine', 0, L.rtl, L.x - 8, L.y - 13); return false; }
+    if (L.frame === 2) { this.applyDirMask('mine', 1, L.rtl, L.x + L.dx - 8, L.y + 1 - 13); return false; }
     if (L.frame === 3 || L.frame === 15) {
       for (let i = 0; i < 2; i++) {
         L.x += L.dx;
@@ -590,13 +590,20 @@ export class Game {
     if (!L.endOfAnim) return false;
     if (L.isBlocking) { L.isBlocking = false; this.restoreMap(L); }
     const below = this.readMap(L.x, L.y);
-    if (below !== DOM.STEEL && below !== DOM.WATER) this.applyMask(MASKS.explode, false, L.x - 8, L.y - 14);
+    if (below !== DOM.STEEL && below !== DOM.WATER) this.applyMask((this.level.masks ?? MASKS).explode, false, L.x - 8, L.y - 14);
     this.removeLemming(L);
     L.exploded = true;
     L.particleTimer = PARTICLE_FRAMECOUNT;
     this.particleFinish = PARTICLE_FRAMECOUNT;
     this.spawnParticles(L);
     return false;
+  }
+
+  /** A basher's or miner's mask: DOS has one for each direction, ours are mirrored. */
+  applyDirMask(kind, i, rtl, left, top) {
+    const dos = this.level.masks;
+    if (dos) this.applyMask(dos[kind][rtl ? 1 : 0][i], false, left, top);
+    else this.applyMask(MASKS[kind][i], rtl, left, top);
   }
 
   applyMask(mask, mirror, left, top) {

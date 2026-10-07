@@ -12,11 +12,14 @@ import { Sound } from './render/audio.js';
 import { Music } from './render/music.js';
 import { Keyboard } from './input/keyboard.js';
 import { UI, CHEAT_LIST } from './ui.js';
+import { DosData } from './dos/dosdata.js';
+import * as dosFiles from './dos/files.js';
 
 const ITER_MS = 60;
 const STORE = 'lemmings.';
 const CHEATS = CHEAT_LIST.map(([k]) => k);
-const DEFAULTS = { speed: 1, music: true, sound: true, smartPick: true, ...Object.fromEntries(CHEATS.map((k) => [k, false])) };
+// pack: which levels, 'dos' (the original 120, from the player's own game files) or 'new'
+const DEFAULTS = { speed: 1, music: true, sound: true, smartPick: true, pack: 'dos', ...Object.fromEntries(CHEATS.map((k) => [k, false])) };
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem(STORE + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -35,8 +38,21 @@ function main() {
   const ui = new UI(document.getElementById('ui'));
 
   const opts = { ...DEFAULTS, ...store.get('opts', {}) };
-  const done = new Set(store.get('done', []));
-  let levelNo = Math.min(LEVELS.length - 1, store.get('level', 0));
+
+  // the level sets: ours, and the DOS game's once its files are loaded. Each
+  // keeps its own ticks and place.
+  let dos = null;
+  const packs = {
+    new: { list: LEVELS, level: (i) => buildLevel(LEVELS[i]), key: '' },
+    dos: { list: [], level: (i) => dos.build(i), key: '.dos' },
+  };
+  let pack = packs.new, done = new Set(), levelNo = 0;
+  function usePack() {
+    pack = opts.pack === 'dos' && dos ? packs.dos : packs.new;
+    done = new Set(store.get('done' + pack.key, []));
+    levelNo = Math.max(0, Math.min(pack.list.length - 1, store.get('level' + pack.key, 0)));
+  }
+  usePack();
 
   // what's on: 'title' | 'preview' | 'play' | 'result'
   let mode = 'title';
@@ -57,6 +73,7 @@ function main() {
     store.set('opts', opts);
     if (k === 'sound') sound.setMuted(!v);
     if (k === 'music') { if (v && mode === 'play') music.start(levelNo); else music.stop(); }
+    if (k === 'pack') { usePack(); toTitle(); return; }
     if (g) applyAssist();
     if (mode === 'play' && anyCheat()) cheated = true;
   }
@@ -81,18 +98,18 @@ function main() {
     ui.close();
     ui.showBar([['Play', () => toPreview(firstUndone()), true], ['Choose level', chooseLevel]]);
   }
-  const firstUndone = () => { for (let i = 0; i < LEVELS.length; i++) if (!done.has(i)) return i; return levelNo; };
+  const firstUndone = () => { for (let i = 0; i < pack.list.length; i++) if (!done.has(i)) return i; return levelNo; };
 
   function chooseLevel() {
     paused = true;
-    ui.showLevels(LEVELS, done, isOpen);
+    ui.showLevels(pack.list, done, isOpen);
   }
 
   function toPreview(n) {
-    levelNo = Math.max(0, Math.min(LEVELS.length - 1, n));
-    store.set('level', levelNo);
-    spec = LEVELS[levelNo];
-    g = new Game(buildLevel(spec));
+    levelNo = Math.max(0, Math.min(pack.list.length - 1, n));
+    store.set('level' + pack.key, levelNo);
+    spec = pack.level(levelNo); // the level description, built (the games don't change it)
+    g = new Game(spec);
     applyAssist();
     mode = 'preview'; paused = false;
     music.stop();
@@ -102,7 +119,7 @@ function main() {
   }
 
   function startLevel() {
-    if (!g || g.iteration > 0) { g = new Game(buildLevel(spec)); applyAssist(); }
+    if (!g || g.iteration > 0) { g = new Game(spec); applyAssist(); }
     mode = 'play'; paused = false; ff = false; nukeArmed = 0; endDelay = 0; flash = [];
     cheated = anyCheat();
     scrollX = clampScroll(spec.start ?? 0);
@@ -119,9 +136,9 @@ function main() {
     music.stop();
     ui.setPlaying(false);
     const passed = g.passed;
-    if (passed && !cheated && !g.cheated) { done.add(levelNo); store.set('done', [...done]); }
-    if (passed && levelNo + 1 < LEVELS.length) store.set('level', levelNo + 1);
-    const buttons = passed && levelNo + 1 < LEVELS.length
+    if (passed && !cheated && !g.cheated) { done.add(levelNo); store.set('done' + pack.key, [...done]); }
+    if (passed && levelNo + 1 < pack.list.length) store.set('level' + pack.key, levelNo + 1);
+    const buttons = passed && levelNo + 1 < pack.list.length
       ? [['Next level', () => toPreview(levelNo + 1), true], ['Play again', startLevel], ['Choose level', chooseLevel]]
       : passed ? [['Choose level', chooseLevel, true], ['Play again', startLevel]]
         : [['Try again', startLevel, true], ['Choose level', chooseLevel]];
@@ -130,10 +147,45 @@ function main() {
 
   // ---- the menus ----
   ui.on.option = setOption;
+
+  // ---- the DOS game's files ----
+  function useDos(files) {
+    dos = new DosData(files);
+    dos.build(0); // fails here, not mid-game, if the files are wrong
+    packs.dos.list = dos.levels;
+  }
+  function dosStatus(msg) {
+    ui.setDos(dos ? msg ?? `Loaded: the ${dos.levels.length} original levels.` : msg ?? 'Not loaded. Pick the .DAT files from your copy of DOS Lemmings (or a .zip of them).', !!dos);
+    if (dos) ui.setOptions(opts);
+  }
+  dosFiles.loadSaved().then((files) => {
+    if (!files) return;
+    try { useDos(files); } catch (err) { dos = null; dosStatus(`Couldn't read the saved files: ${err.message}`); return; }
+    dosStatus();
+    if (opts.pack === 'dos' && mode === 'title') { usePack(); toTitle(); }
+  }).catch(() => {}).finally(() => { if (!dos) dosStatus(); });
+  ui.on.loadFiles = async (list) => {
+    dosStatus('Reading...');
+    try {
+      const { files, missing } = await dosFiles.readPicked(list);
+      if (missing.length) { dosStatus(`Still needed: ${missing.map((n) => n.toUpperCase()).join(', ')}. Pick them all at once (or a .zip with them in).`); return; }
+      useDos(files);
+      await dosFiles.save(files).catch(() => {});
+      opts.pack = 'dos'; store.set('opts', opts); ui.setOptions(opts);
+      dosStatus();
+      usePack(); toTitle();
+    } catch (err) { dos = null; packs.dos.list = []; dosStatus(`Those files didn't work: ${err.message}`); }
+  };
+  ui.on.forgetFiles = async () => {
+    await dosFiles.forget();
+    dos = null; packs.dos.list = [];
+    dosStatus('Removed from this device.');
+    usePack(); toTitle();
+  };
   ui.on.menu = () => { if (mode === 'play') { paused = true; ui.open('menu'); } };
   ui.on.resume = () => { ui.close(); paused = false; };
   ui.on.restart = () => { ui.close(); startLevel(); };
-  ui.on.skip = () => { ui.close(); if (g) { cheated = true; g.cheated = true; } toPreview(levelNo + 1 < LEVELS.length ? levelNo + 1 : levelNo); };
+  ui.on.skip = () => { ui.close(); if (g) { cheated = true; g.cheated = true; } toPreview(levelNo + 1 < pack.list.length ? levelNo + 1 : levelNo); };
   ui.on.chooseLevel = chooseLevel;
   ui.on.title = toTitle;
   ui.on.pickLevel = (i) => toPreview(i);
@@ -238,7 +290,7 @@ function main() {
   stage.addEventListener('pointercancel', up);
   stage.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  window.__lem = { get g() { return g; }, get mode() { return mode; }, toPreview, startLevel, sound, LEVELS }; // debug handle
+  window.__lem = { get g() { return g; }, get mode() { return mode; }, toPreview, startLevel, sound, get pack() { return pack; } }; // debug handle
 
   // ---- layout ----
   function fit() {
@@ -260,7 +312,8 @@ function main() {
     screen.text(Math.round((SCREEN_W - screen.textWidth(t, 4)) / 2) + 2, 20, t, [0, 90, 20], 4);
     screen.centred(18, t, GREEN, 4);
     screen.centred(54, 'FOR IPAD', [120, 140, 255]);
-    if (done.size) screen.centred(170, `${done.size} OF ${LEVELS.length} LEVELS DONE`, YELLOW);
+    screen.centred(156, pack === packs.dos ? 'THE ORIGINAL LEVELS' : 'THE NEW LEVELS', [170, 170, 190]);
+    if (done.size) screen.centred(170, `${done.size} OF ${pack.list.length} LEVELS DONE`, YELLOW);
     if (anyCheat()) screen.centred(184, 'CHEATS ON', [255, 110, 110]);
   }
 
@@ -284,7 +337,7 @@ function main() {
   function drawPreview() {
     screen.clear();
     overview(6);
-    screen.centred(48, `LEVEL ${levelNo + 1}`, PINK);
+    screen.centred(48, spec.number ? `${spec.rating.toUpperCase()} ${spec.number}` : `LEVEL ${levelNo + 1}`, PINK);
     screen.centred(60, spec.name, WHITE, 2);
     const lines = [
       [`NUMBER OF LEMMINGS ${spec.count}`, [80, 160, 255]],
@@ -328,7 +381,7 @@ function main() {
     if (keyboard.consume('Escape')) { if (mode === 'play') ui.on.menu(); else if (mode !== 'title') toTitle(); }
     if (mode === 'preview' && keyboard.consume('Space', 'Enter')) startLevel();
     if (mode === 'title' && keyboard.consume('Space', 'Enter')) toPreview(firstUndone());
-    if (mode === 'result' && keyboard.consume('Space', 'Enter')) { if (g.passed && levelNo + 1 < LEVELS.length) toPreview(levelNo + 1); else startLevel(); }
+    if (mode === 'result' && keyboard.consume('Space', 'Enter')) { if (g.passed && levelNo + 1 < pack.list.length) toPreview(levelNo + 1); else startLevel(); }
     if (mode !== 'play') return;
     SKILLS.forEach((s, i) => { if (keyboard.consume(`Digit${i + 1}`, `F${i + 3}`)) pressButton(s); });
     if (keyboard.consume('KeyP', 'Pause')) pressButton('pause');

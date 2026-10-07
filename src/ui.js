@@ -34,6 +34,15 @@ export class UI {
         <label><input data-opt="music" type="checkbox"> Music</label>
         <label><input data-opt="sound" type="checkbox"> Sound effects</label>
         <label><input data-opt="smartPick" type="checkbox"> Smart tap (gives the skill to the lemming that can use it)</label>
+        <h3>Original game</h3>
+        <label>Levels <select data-opt="pack"><option value="dos">The original 120 (DOS)</option><option value="new">The new ones</option></select></label>
+        <p class="ui-note ui-dos-status"></p>
+        <div class="ui-row">
+          <button class="ui-dos-load" type="button">Load game files</button>
+          <button class="ui-dos-forget" type="button">Remove</button>
+        </div>
+        <input class="ui-dos-pick" type="file" multiple hidden>
+        <p class="ui-note">The original levels, graphics and lemmings come from your own copy of DOS Lemmings: MAIN.DAT, ODDTABLE.DAT, LEVEL000-009.DAT, GROUND0-4O.DAT, VGAGR0-4.DAT and VGASPEC0-3.DAT. They stay on this device.</p>
         <h3>Cheats</h3>
         ${CHEAT_LIST.map(([k, t]) => `<label><input data-opt="${k}" type="checkbox"> ${t}</label>`).join('')}
         <p class="ui-note">A level only gets its tick when it's done with no cheats on (slow speed is fine).</p>
@@ -60,8 +69,12 @@ export class UI {
     this.q('.ui-title').addEventListener('click', call('title'));
     for (const b of el.querySelectorAll('.ui-close')) b.addEventListener('click', () => { this.close(); this.on.closed?.(); });
     for (const f of el.querySelectorAll('[data-opt]')) {
-      f.addEventListener('change', () => this.on.option?.(f.dataset.opt, f.type === 'checkbox' ? f.checked : Number(f.value)));
+      f.addEventListener('change', () => this.on.option?.(f.dataset.opt, f.type === 'checkbox' ? f.checked : Number.isNaN(Number(f.value)) ? f.value : Number(f.value)));
     }
+    const pick = this.q('.ui-dos-pick');
+    this.q('.ui-dos-load').addEventListener('click', () => pick.click());
+    pick.addEventListener('change', () => { if (pick.files.length) this.on.loadFiles?.([...pick.files]); pick.value = ''; });
+    this.q('.ui-dos-forget').addEventListener('click', () => this.on.forgetFiles?.());
     // keep taps on the menus off the game
     for (const ev of ['pointerdown', 'pointerup', 'pointermove']) {
       for (const n of [this.q('.ui-gear'), this.q('.ui-menu-btn'), ...Object.values(this.panels), this.bar]) n.addEventListener(ev, (e) => e.stopPropagation());
@@ -83,6 +96,14 @@ export class UI {
     }
   }
 
+  /** The original game's files: a line saying how they are, and whether they're loaded. */
+  setDos(status, loaded) {
+    this.q('.ui-dos-status').textContent = status;
+    this.q('.ui-dos-forget').hidden = !loaded;
+    this.q('[data-opt="pack"]').disabled = !loaded;
+    if (!loaded) this.q('[data-opt="pack"]').value = 'new';
+  }
+
   /** Whether the in-game menu button shows. */
   setPlaying(on) { this.el.classList.toggle('ui-playing', on); }
 
@@ -102,7 +123,7 @@ export class UI {
       b.type = 'button';
       b.className = 'ui-level' + (done.has(i) ? ' done' : '');
       b.disabled = !isOpen(i);
-      b.innerHTML = `<span class="n">${i + 1}</span><span class="t">${lv.name}</span><span class="c">${done.has(i) ? '&#10003;' : b.disabled ? '&#128274;' : ''}</span>`;
+      b.innerHTML = `<span class="n">${lv.number ?? i + 1}</span><span class="t">${lv.name}</span><span class="c">${done.has(i) ? '&#10003;' : b.disabled ? '&#128274;' : ''}</span>`;
       b.addEventListener('click', () => { this.close(); this.on.pickLevel?.(i); });
       grid.appendChild(b);
     });

@@ -80,11 +80,25 @@ to see it.
 
 ## The original levels
 
-The engine is built to the DOS data's layout: the 1600x160 world, the object
-map, and the frame and mask sizes. A loader for the original DOS files
-(`MAIN.DAT`, `LEVEL000.DAT`-`LEVEL009.DAT`, `GROUND?O.DAT`/`VGAGR?.DAT`) can
-be added on top, so someone with a boxed copy can load the original 120 levels
-on their iPad. The files are never part of this repository.
+With a copy of DOS Lemmings, the game plays the original 120 levels (Fun,
+Tricky, Taxing, Mayhem) with the original terrain, objects, lemmings, dig
+masks and skill panel. In settings (the cog), **Load game files** and pick
+these files from the game, or a .zip with them in:
+
+`MAIN.DAT`, `ODDTABLE.DAT`, `LEVEL000.DAT`-`LEVEL009.DAT`,
+`GROUND0O.DAT`-`GROUND4O.DAT`, `VGAGR0.DAT`-`VGAGR4.DAT`, `VGASPEC0.DAT`-`VGASPEC3.DAT`
+
+They're kept on the device (IndexedDB) and never uploaded; **Levels** in
+settings switches between the original levels and the new ones, each with its
+own ticks. The files are never part of this repository (`reference/` is
+ignored); on localhost the dev server's copy in `reference/lemming1.pc` is used
+when nothing has been loaded. The sounds and music are still the new ones.
+
+`src/dos/` reads them: `dat.js` unpacks the .DAT compression, `dosdata.js`
+reads the levels, graphic sets, sprites, masks and panel (formats as
+ccexplore documented them, and as Lemmix and Lemmings.ts read them), `files.js`
+picks, unzips and stores them. `node tools/dosshot.mjs out.png <1..120>` draws
+an original level.
 
 ## Develop
 

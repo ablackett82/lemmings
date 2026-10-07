@@ -10,7 +10,7 @@ import { FONT } from './font.js';
 export const SCREEN_W = 320, SCREEN_H = 200, VIEW_H = 160;
 export const PANEL_Y = 176, BTN_W = 16, BTN_H = 24;
 export const BUTTONS = ['slower', 'faster', ...SKILLS, 'pause', 'nuke', 'ff'];
-export const MINI = { x: 214, y: 178, w: 100, h: 20 };
+export const MINI = { x: 209, y: 178, w: 100, h: 20 }; // inside the DOS panel's red frame
 
 const PANEL = [44, 52, 78], PANEL_HI = [84, 96, 136], PANEL_LO = [24, 28, 44];
 const INFO = [80, 230, 90];
@@ -21,7 +21,7 @@ export class Screen {
   constructor() {
     this.rgba = new Uint8ClampedArray(SCREEN_W * SCREEN_H * 4);
     this.frames = makeLemmingFrames();
-    this.objCache = new Map();
+    this.objCache = new WeakMap();
     this.mini = null; this.miniAge = 0;
   }
 
@@ -60,14 +60,14 @@ export class Screen {
   }
 
   /** A lemming animation frame with its foot at (x, y) on the screen. */
-  sprite(f, x, y, clipBottom = SCREEN_H, tint = null) {
+  sprite(f, x, y, clipBottom = SCREEN_H, tint = null, pal = LEM_PALETTE) {
     const left = x - f.fx, top = y - f.fy;
     for (let j = 0; j < f.h; j++) {
       const sy = top + j;
       if (sy < 0 || sy >= clipBottom) continue;
       for (let i = 0; i < f.w; i++) {
         const c = f.data[j * f.w + i];
-        if (c) this.px(left + i, sy, tint ?? LEM_PALETTE[c]);
+        if (c) this.px(left + i, sy, tint ?? pal[c]);
       }
     }
   }
@@ -82,7 +82,8 @@ export class Screen {
     return list[o.frame] ?? list[0];
   }
 
-  drawObject(o, sx) {
+  /** An object; `pix` (the terrain) for the ones only seen on terrain (DOS's one-way arrows). */
+  drawObject(o, sx, pix) {
     const p = this.objectFrames(o);
     if (!p) return;
     const x0 = o.x - sx;
@@ -92,6 +93,7 @@ export class Screen {
       for (let i = 0; i < p.w; i++) {
         const x = x0 + i;
         if (x < 0 || x >= SCREEN_W) continue;
+        if (o.onTerrain && (o.x + i < 0 || o.x + i >= WORLD_W || !pix[y * WORLD_W + o.x + i])) continue;
         const k = (j * p.w + i) * 4;
         if (p.data[k + 3]) this.px(x, y, [p.data[k], p.data[k + 1], p.data[k + 2]]);
       }
@@ -108,7 +110,7 @@ export class Screen {
     const sx = ui.scrollX;
     const lv = g.level, pal = lv.palette, pix = g.pix, rgba = this.rgba;
     this.rect(0, 0, SCREEN_W, VIEW_H, [0, 0, 0]);
-    for (const o of g.objects) if (!o.front && o.kind !== 'oneway') this.drawObject(o, sx);
+    for (const o of g.objects) if (!o.front && o.kind !== 'oneway') this.drawObject(o, sx, pix);
     // the terrain
     for (let y = 0; y < VIEW_H; y++) {
       const row = y * WORLD_W;
@@ -130,15 +132,25 @@ export class Screen {
         if (oneWayArrow(ax, y - o.y)) this.px(scr, y, o.dir === 'left' ? [250, 240, 120] : [140, 240, 255]);
       }
     }
-    for (const o of g.objects) if (o.front) this.drawObject(o, sx);
-    // the lemmings
+    for (const o of g.objects) if (o.front) this.drawObject(o, sx, pix);
+    // the lemmings: the DOS ones in the level's colours, or ours
+    const frames = lv.frames ?? this.frames, lemPal = lv.frames ? pal : LEM_PALETTE;
     for (const L of g.lemmings) {
       if (L.removed) continue;
-      const set = this.frames[L.action][L.rtl ? 1 : 0];
+      const set = frames[L.action][L.rtl ? 1 : 0];
       const f = set[Math.min(L.frame, set.length - 1)];
-      this.sprite(f, L.x - sx, L.y, VIEW_H);
+      this.sprite(f, L.x - sx, L.y, VIEW_H, null, lemPal);
       if (L.explosionTimer > 0) {
         const d = L.explosionTimer >= 65 ? 5 : L.explosionTimer >= 49 ? 4 : L.explosionTimer >= 33 ? 3 : L.explosionTimer >= 17 ? 2 : 1;
+        if (lv.dos) {
+          // DOS's 8x8 digits (stored 9 down to 0), above the head
+          const m = lv.dos.masks.digits[9 - d];
+          for (let r = 0; r < 8; r++) for (let k = 0; k < 8; k++) if (m.bits[r * 8 + k]) {
+            const yy = L.y - 19 + r;
+            if (yy >= 0 && yy < VIEW_H) this.px(L.x - sx - 1 + k, yy, [255, 255, 255]);
+          }
+          continue;
+        }
         const rows = DIGITS[d];
         for (let r = 0; r < 5; r++) for (let k = 0; k < 3; k++) if (rows[r][k] === '1') {
           const yy = L.y - f.fy - 7 + r;
@@ -174,14 +186,67 @@ export class Screen {
     return rgba;
   }
 
+  /** The name of the lemming under the cursor, as the panel shows it. */
+  lemmingName(L) {
+    return L.isClimber && L.isFloater ? 'ATHLETE' : (L.action === 'walking' || L.action === 'falling') && L.isClimber ? 'CLIMBER' : (L.action === 'walking' || L.action === 'falling') && L.isFloater ? 'FLOATER' : LABEL[L.action];
+  }
+
+  /** Text in DOS's green 8x16 letters. */
+  dosText(d, pal, x, y, s) {
+    for (const ch of String(s).toUpperCase()) {
+      const glyph = d.font[ch];
+      if (glyph) for (let j = 0; j < 16; j++) for (let i = 0; i < 8; i++) { const c = glyph[j * 8 + i]; if (c) this.px(x + i, y + j, pal[c]); }
+      x += 8;
+    }
+  }
+
+  /** The DOS panel, from MAIN.DAT, with the counts and the minimap drawn on it. */
+  drawDosPanel(g, ui) {
+    const d = g.level.dos, pal = g.level.palette, white = [255, 255, 255];
+    for (let y = 0; y < 40; y++) for (let x = 0; x < SCREEN_W; x++) this.px(x, VIEW_H + y, pal[d.panel[y * SCREEN_W + x]]);
+    if (ui.hover && ui.hoverCount) this.dosText(d, pal, 0, VIEW_H, `${this.lemmingName(ui.hover)} ${ui.hoverCount}`);
+    this.dosText(d, pal, 112, VIEW_H, `OUT ${g.out}`);
+    this.dosText(d, pal, 184, VIEW_H, `IN ${g.savedPercent}%`);
+    this.dosText(d, pal, 248, VIEW_H, g.assist.noTimeLimit ? 'TIME --' : `TIME ${Math.max(0, g.minutes)}-${String(Math.max(0, g.seconds)).padStart(2, '0')}`);
+    // the counts at the top of the buttons: both digits in one 8x8 cell
+    const count = (bx, n) => {
+      if (n <= 0) return;
+      n = Math.min(99, n);
+      const tens = Math.floor(n / 10), ones = n % 10;
+      for (let j = 0; j < 8; j++) for (let i = 0; i < 8; i++) {
+        if ((tens && d.panelDigits[tens].left[j * 8 + i]) || d.panelDigits[ones].right[j * 8 + i]) this.px(bx + 4 + i, PANEL_Y + 1 + j, white);
+      }
+    };
+    BUTTONS.forEach((b, i) => {
+      const x = i * BTN_W;
+      if (b === 'slower') count(x, g.minRate);
+      else if (b === 'faster') count(x, g.rate);
+      else if (SKILLS.includes(b)) { count(x, g.left(b)); if (ui.selected === b) this.frame(x, PANEL_Y, BTN_W, BTN_H, white); }
+      else if (b === 'pause' && ui.paused) {
+        // paused: a play triangle over the paw prints
+        this.rect(x + 1, PANEL_Y + 1, BTN_W - 2, BTN_H - 2, [0, 0, 0]);
+        for (let k = 0; k < 6; k++) this.rect(x + 5 + k, PANEL_Y + 7 + k, 1, 11 - k * 2, white);
+        this.frame(x, PANEL_Y, BTN_W, BTN_H, white);
+      }
+      else if (b === 'nuke' && (ui.nukeArmed || g.nuking)) this.frame(x, PANEL_Y, BTN_W, BTN_H, white);
+      else if (b === 'ff') {
+        // not on DOS: fast forward, over the panel's scroll
+        this.rect(x, PANEL_Y, BTN_W, BTN_H, ui.ff ? [110, 70, 70] : PANEL);
+        this.rect(x, PANEL_Y, BTN_W, 1, PANEL_HI); this.rect(x, PANEL_Y, 1, BTN_H, PANEL_HI);
+        this.rect(x, PANEL_Y + BTN_H - 1, BTN_W, 1, PANEL_LO); this.rect(x + BTN_W - 1, PANEL_Y, 1, BTN_H, PANEL_LO);
+        for (let k = 0; k < 5; k++) { this.rect(x + 2 + k, PANEL_Y + 10 + k, 1, 9 - k * 2, white); this.rect(x + 8 + k, PANEL_Y + 10 + k, 1, 9 - k * 2, white); }
+      }
+    });
+    this.drawMinimap(g, ui, true);
+  }
+
   drawPanel(g, ui) {
+    if (g.level.dos) { this.drawDosPanel(g, ui); return; }
     this.rect(0, VIEW_H, SCREEN_W, SCREEN_H - VIEW_H, [0, 0, 0]);
     // the info line
     let left = '';
     if (ui.hover && ui.hoverCount) {
-      const L = ui.hover;
-      const name = L.isClimber && L.isFloater ? 'ATHLETE' : (L.action === 'walking' || L.action === 'falling') && L.isClimber ? 'CLIMBER' : (L.action === 'walking' || L.action === 'falling') && L.isFloater ? 'FLOATER' : LABEL[L.action];
-      left = `${name} ${ui.hoverCount}`;
+      left = `${this.lemmingName(ui.hover)} ${ui.hoverCount}`;
     }
     this.text(2, 165, left, INFO);
     this.text(104, 165, `OUT ${g.out}`, INFO);
@@ -198,7 +263,11 @@ export class Screen {
       const num = (n) => this.digits(x + (n >= 10 ? 4 : 6), y + 2, n, [255, 255, 255]);
       if (b === 'slower') { num(g.minRate); this.rect(x + 4, y + 15, 8, 2, [255, 255, 255]); }
       else if (b === 'faster') { num(g.rate); this.rect(x + 4, y + 15, 8, 2, [255, 255, 255]); this.rect(x + 7, y + 12, 2, 8, [255, 255, 255]); }
-      else if (b === 'pause') { this.rect(x + 4, y + 9, 3, 10, [255, 255, 255]); this.rect(x + 9, y + 9, 3, 10, [255, 255, 255]); }
+      else if (b === 'pause') {
+        // paused: a play triangle (tap to carry on); playing: two bars
+        if (ui.paused) for (let k = 0; k < 6; k++) this.rect(x + 5 + k, y + 9 + k, 1, 11 - k * 2, [255, 255, 255]);
+        else { this.rect(x + 4, y + 9, 3, 10, [255, 255, 255]); this.rect(x + 9, y + 9, 3, 10, [255, 255, 255]); }
+      }
       else if (b === 'ff') {
         for (let k = 0; k < 5; k++) { this.rect(x + 2 + k, y + 10 + k, 1, 9 - k * 2, [255, 255, 255]); this.rect(x + 8 + k, y + 10 + k, 1, 9 - k * 2, [255, 255, 255]); }
       } else if (b === 'nuke') {
@@ -217,7 +286,8 @@ export class Screen {
     this.drawMinimap(g, ui);
   }
 
-  drawMinimap(g, ui) {
+  /** The minimap; on the DOS panel (dos), inside its red frame and in green. */
+  drawMinimap(g, ui, dos = false) {
     const { x: mx, y: my, w, h } = MINI;
     if (!this.mini || this.miniGame !== g || --this.miniAge <= 0) {
       this.mini = new Uint8Array(w * h);
@@ -228,10 +298,11 @@ export class Screen {
       }
       this.miniGame = g; this.miniAge = 10;
     }
-    this.rect(mx - 1, my - 1, w + 2, h + 2, PANEL_LO);
+    if (!dos) this.rect(mx - 1, my - 1, w + 2, h + 2, PANEL_LO);
+    const [hi, lo] = dos ? [[0, 176, 0], [0, 96, 0]] : [[150, 110, 70], [90, 66, 44]];
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
       const n = this.mini[j * w + i];
-      this.px(mx + i, my + j, n > 6 ? [150, 110, 70] : n > 0 ? [90, 66, 44] : [0, 0, 0]);
+      this.px(mx + i, my + j, n > 6 ? hi : n > 0 ? lo : [0, 0, 0]);
     }
     for (const o of g.objects) {
       if (o.kind === 'exit') this.px(mx + ((o.x + 20) >> 4), my + ((o.y + 20) >> 3), [255, 220, 60]);
