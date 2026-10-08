@@ -317,7 +317,18 @@ function main() {
     canvas.style.width = `${Math.floor(SCREEN_W * scale)}px`;
     canvas.style.height = `${Math.floor(SCREEN_H * scale)}px`;
   }
-  window.addEventListener('resize', fit);
+  // iOS fires resize/orientationchange before the new viewport size has settled,
+  // so also watch the stage itself and re-fit a few times after a rotation.
+  let refitTimers = [];
+  function refit() {
+    fit();
+    refitTimers.forEach(clearTimeout);
+    refitTimers = [100, 300, 700].map(ms => setTimeout(fit, ms));
+  }
+  window.addEventListener('resize', refit);
+  window.addEventListener('orientationchange', refit);
+  window.visualViewport?.addEventListener('resize', refit);
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(stage);
   fit();
 
   // ---- drawing the screens between levels ----
