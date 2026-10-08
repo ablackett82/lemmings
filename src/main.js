@@ -81,7 +81,9 @@ function main() {
     if (!g) return;
     for (const k of ['unlimitedSkills', 'noTimeLimit', 'safeFalls', 'saveOne']) g.assist[k] = opts[k];
   }
-  const isOpen = (i) => opts.allLevels || i === 0 || done.has(i) || done.has(i - 1);
+  // Like the original's rating signs, level 1 of every rating is open from the start.
+  const isOpen = (i) => opts.allLevels || i === 0 || done.has(i) || done.has(i - 1)
+    || pack.list[i]?.rating !== pack.list[i - 1]?.rating;
 
   // ---- the screens ----
   function makeDemo() {
