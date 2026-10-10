@@ -1,9 +1,9 @@
 // Service worker: caches the whole app on install so it launches offline.
 // Bump VERSION whenever any file changes, so clients pick up the new build.
-const VERSION = 'v8';
+const VERSION = 'v9';
 const CACHE = `lemmings-${VERSION}`;
 const FILES = [
-  './', 'index.html', 'style.css', 'manifest.webmanifest',
+  './', 'index.html', 'moved.js', 'style.css', 'manifest.webmanifest',
   'src/main.js', 'src/ui.js',
   'src/game/engine.js', 'src/game/sprites.js', 'src/game/objects.js', 'src/game/level.js',
   'src/game/levels.js', 'src/game/title.js', 'src/game/solver.js',
@@ -21,7 +21,7 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith(CACHE.slice(0, -VERSION.length)) && k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
 // cache first, falling back to the network (and caching what it returns)
