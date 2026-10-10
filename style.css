@@ -86,6 +86,22 @@ html, body {
 #ui .ui-level.done { border-color: #2a7a30; }
 #ui .ui-level:disabled { opacity: 0.35; cursor: default; }
 
+/* the clear buttons (settings, accessibility): over the canvas's skill panel; taps go through to it */
+#ui .ui-hd { position: absolute; display: flex; pointer-events: none; font-family: system-ui, -apple-system, sans-serif; }
+#ui .ui-hd[hidden] { display: none; }
+#ui .ui-hd .hd {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; box-sizing: border-box;
+  background: linear-gradient(#3a4466, #252c44); border: 1px solid #5a6690; border-radius: calc(var(--cw) * 0.08);
+  color: #fff; font-weight: 700; line-height: 1; overflow: hidden; text-transform: none; letter-spacing: 0;
+}
+#ui .ui-hd .hd.sel { background: linear-gradient(#5a6aa0, #364070); box-shadow: inset 0 0 0 calc(var(--cw) * 0.06) #fff; }
+#ui .ui-hd .hd.on { background: linear-gradient(#8a5050, #5a3030); }
+#ui .ui-hd .hd.off .hd-pic { opacity: 0.35; filter: grayscale(1); }
+#ui .ui-hd .hd-n { height: 1.1em; padding-top: 0.15em; font-size: calc(var(--cw) * 0.24); }
+#ui .ui-hd .hd-pic { flex: 1; min-height: 0; width: 100%; display: flex; }
+#ui .ui-hd .hd-pic svg { fill: initial; }
+#ui .ui-hd .hd-l { padding: 0.1em 0 0.3em; font-size: calc(var(--cw) * 0.2); white-space: nowrap; }
+
 /* buttons between levels, along the bottom */
 #ui .ui-bar {
   position: absolute; left: 0; right: 0; bottom: calc(var(--sat-b) + 14px);

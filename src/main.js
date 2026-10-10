@@ -7,7 +7,7 @@ import { buildLevel } from './game/level.js';
 import { LEVELS } from './game/levels.js';
 import { TITLE_LEVEL } from './game/title.js';
 import { Solver } from './game/solver.js';
-import { Screen, SCREEN_W, SCREEN_H, VIEW_H, PANEL_Y, BTN_W, BUTTONS, MINI } from './render/screen.js';
+import { Screen, SCREEN_W, SCREEN_H, VIEW_H, PANEL_Y, BTN_W, BTN_H, BUTTONS, MINI } from './render/screen.js';
 import { Sound } from './render/audio.js';
 import { Music } from './render/music.js';
 import { Keyboard } from './input/keyboard.js';
@@ -19,7 +19,7 @@ const ITER_MS = 60;
 const STORE = 'lemmings.';
 const CHEATS = CHEAT_LIST.map(([k]) => k);
 // pack: which levels, 'dos' (the original 120, from the player's own game files) or 'new'
-const DEFAULTS = { speed: 1, music: true, sound: true, smartPick: true, pack: 'dos', ...Object.fromEntries(CHEATS.map((k) => [k, false])) };
+const DEFAULTS = { speed: 1, music: true, sound: true, smartPick: true, bigButtons: false, pack: 'dos', ...Object.fromEntries(CHEATS.map((k) => [k, false])) };
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem(STORE + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -318,6 +318,8 @@ function main() {
     const scale = Math.min(vw / SCREEN_W, vh / SCREEN_H);
     canvas.style.width = `${Math.floor(SCREEN_W * scale)}px`;
     canvas.style.height = `${Math.floor(SCREEN_H * scale)}px`;
+    const r = canvas.getBoundingClientRect(), s = r.width / SCREEN_W;
+    ui.placeButtons(r.left, r.top + PANEL_Y * s, BUTTONS.length * BTN_W * s, BTN_H * s, BUTTONS.length);
   }
   // iOS fires resize/orientationchange before the new viewport size has settled,
   // so also watch the stage itself and re-fit a few times after a rotation.
@@ -429,6 +431,17 @@ function main() {
     }
   }
 
+  // the panel's buttons as the clear buttons (settings, accessibility) show them
+  const clearButtons = () => BUTTONS.map((b) => {
+    if (b === 'slower') return { name: b, count: g.minRate };
+    if (b === 'faster') return { name: b, count: g.rate };
+    if (b === 'pause') return { name: paused ? 'play' : 'pause', on: paused };
+    if (b === 'ff') return { name: b, on: ff };
+    if (b === 'nuke') return { name: b, on: nukeArmed > 0 || g.nuking };
+    const n = g.left(b);
+    return { name: b, count: n > 0 ? Math.min(99, n) : '', sel: selected === b, off: n <= 0 };
+  });
+
   // everyone else is home or gone, and blockers never move: DOS waits for the
   // clock or the nuke
   const onlyBlockers = () => g.released >= g.count && !g.nuking && g.out > 0 && g.lemmings.every((L) => L.removed || L.action === 'blocking');
@@ -479,6 +492,7 @@ function main() {
         message: paused && !menuOpen ? 'PAUSED' : nukeArmed > 0 ? 'TAP NUKE AGAIN TO BLOW THEM ALL UP' : onlyBlockers() ? 'ONLY BLOCKERS LEFT: NUKE TO FINISH' : null,
       });
     }
+    ui.setButtons(mode === 'play' && opts.bigButtons ? clearButtons() : null);
     image.data.set(screen.rgba);
     ctx.putImageData(image, 0, 0);
   }

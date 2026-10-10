@@ -1,6 +1,8 @@
 // The menus over the picture (HTML, so they're easy to hit with a finger):
 // the settings and cheats (the cog), the pause menu, the level chooser, and
-// the buttons on the screens between levels.
+// the buttons on the screens between levels, and the clear buttons over the
+// skill panel.
+import { HD_DEFS, HD_LABELS, hdIcon } from './render/hdicons.js';
 
 export const CHEAT_LIST = [
   ['unlimitedSkills', 'Unlimited skills'],
@@ -17,7 +19,8 @@ const MENU = '<svg viewBox="0 0 10 10" shape-rendering="crispEdges" aria-hidden=
 export class UI {
   constructor(el) {
     this.el = el;
-    el.innerHTML = `
+    el.innerHTML = `${HD_DEFS}
+      <div class="ui-hd" hidden></div>
       <button class="ui-menu-btn" type="button" aria-label="Menu">${MENU}</button>
       <button class="ui-gear" type="button" aria-label="Settings">${GEAR}</button>
       <div class="ui-panel ui-menu" hidden>
@@ -34,6 +37,8 @@ export class UI {
         <label><input data-opt="music" type="checkbox"> Music</label>
         <label><input data-opt="sound" type="checkbox"> Sound effects</label>
         <label><input data-opt="smartPick" type="checkbox"> Smart tap (gives the skill to the lemming that can use it)</label>
+        <h3>Accessibility</h3>
+        <label><input data-opt="bigButtons" type="checkbox"> Clear buttons (a picture of each skill, with its name)</label>
         <h3>Original game</h3>
         <label>Levels <select data-opt="pack"><option value="dos">The original 120 (DOS)</option><option value="new">The new ones</option></select></label>
         <p class="ui-note ui-dos-status"></p>
@@ -58,6 +63,7 @@ export class UI {
     this.q = (s) => el.querySelector(s);
     this.panels = { menu: this.q('.ui-menu'), settings: this.q('.ui-settings'), levels: this.q('.ui-levels') };
     this.bar = this.q('.ui-bar');
+    this.hd = this.q('.ui-hd'); this.hdKeys = [];
     // hooks for main.js
     this.on = {};
     const call = (name, ...a) => () => this.on[name]?.(...a);
@@ -131,6 +137,34 @@ export class UI {
       grid.appendChild(b);
     });
     this.open('levels');
+  }
+
+  /** Where the panel's buttons are on the page (CSS px): the clear buttons go over them. */
+  placeButtons(x, y, w, h, n) {
+    Object.assign(this.hd.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
+    this.hd.style.setProperty('--cw', `${w / n}px`);
+  }
+
+  /**
+   * The clear buttons, or null to hide them. buttons: [{ name, count, sel, on, off }]
+   * in the panel's order (name is the picture: a skill, slower, faster, pause, play, nuke, ff).
+   */
+  setButtons(buttons) {
+    this.hd.hidden = !buttons;
+    if (!buttons) return;
+    if (this.hd.children.length !== buttons.length) {
+      this.hd.innerHTML = buttons.map(() => '<div class="hd"><span class="hd-n"></span><span class="hd-pic"></span><span class="hd-l"></span></div>').join('');
+      this.hdKeys = [];
+    }
+    buttons.forEach((b, i) => {
+      const key = `${b.name} ${b.count ?? ''} ${b.sel ? 's' : ''}${b.on ? 'o' : ''}${b.off ? 'x' : ''}`;
+      if (this.hdKeys[i] === key) return;
+      const [cell, prev] = [this.hd.children[i], this.hdKeys[i]?.split(' ')[0]];
+      this.hdKeys[i] = key;
+      cell.className = 'hd' + (b.sel ? ' sel' : '') + (b.on ? ' on' : '') + (b.off ? ' off' : '');
+      cell.children[0].textContent = b.count ?? '';
+      if (prev !== b.name) { cell.children[1].innerHTML = hdIcon(b.name); cell.children[2].textContent = HD_LABELS[b.name]; }
+    });
   }
 
   /** Buttons along the bottom (between levels). buttons: [[label, fn, main?]] */

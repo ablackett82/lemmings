@@ -55,6 +55,9 @@ Settings and cheats (the cog):
 
 - Game speed: Normal, Slow (75%), Very slow (50%)
 - Music, sound effects, smart tap
+- Accessibility: clear buttons, a sharp picture of a lemming doing each
+  skill with its name under it, over the pixel-art buttons
+  (`src/render/hdicons.js`)
 - Cheats: unlimited skills; give skills while paused; lemmings never splat; no
   time limit; saving one lemming is enough; every level open; skip level (in
   the ≡ menu)
