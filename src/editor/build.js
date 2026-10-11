@@ -40,6 +40,26 @@ export function standY(dos, setNo, id, groundY) {
 }
 
 /**
+ * An exit only takes lemmings in if its trigger (on the engine's 4-pixel grid)
+ * covers the ground they walk on, so one that looks right can be a pixel or two
+ * out (dragged, nudged). If there's ground just under it, the nearest y that works.
+ */
+function seatExit(pix, d, x, y) {
+  const t = d.trigger;
+  if (!t) return y;
+  const cx = (x & ~3) + t.x + (t.w >> 1);
+  if (cx < 0 || cx >= WORLD_W) return y;
+  const covers = (yy, g) => { const top = (yy & ~3) + t.y; return g >= top && g < top + t.h; };
+  const top = (y & ~3) + t.y;
+  for (let g = Math.max(1, top - 4); g < Math.min(WORLD_H, top + t.h + 4); g++) {
+    if (!pix[g * WORLD_W + cx] || pix[(g - 1) * WORLD_W + cx]) continue;
+    if (covers(y, g)) return y;
+    for (let dy = 1; dy <= 8; dy++) for (const yy of [y + dy, y - dy]) if (covers(yy, g)) return yy;
+  }
+  return y;
+}
+
+/**
  * spec (see format.js) → { level (for new Game()), boxes: per terrain item
  * its bounds {x, y, w, h}, ends: per stamp where the lemming finished }.
  */
@@ -81,10 +101,11 @@ export function buildCustom(spec, dos) {
     if (!d) continue;
     const oneWay = d.effect === 'oneWayLeft' || d.effect === 'oneWayRight';
     const flags = 1 | (o.fv ? 0x80 : 0) | (o.behind ? 0x8000 : 0) | (oneWay ? 0x4000 : 0);
-    objects.push(dos.placeObject(d, o.x, o.y, flags, palette));
+    const y = d.effect === 'exit' ? seatExit(pix, d, o.x, o.y) : o.y;
+    objects.push(dos.placeObject(d, o.x, y, flags, palette));
     // an exit comes with its top, behind the terrain, as in the original levels
     const [topId, dy] = SETS[spec.set].exitTop;
-    if (d.effect === 'exit' && set.objects[topId]) objects.push(dos.placeObject(set.objects[topId], o.x, o.y + dy, 1 | 0x8000, palette));
+    if (d.effect === 'exit' && set.objects[topId]) objects.push(dos.placeObject(set.objects[topId], o.x, y + dy, 1 | 0x8000, palette));
   }
 
   // the screen starts with the first entrance in the middle

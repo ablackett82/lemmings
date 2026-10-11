@@ -31,6 +31,18 @@ test('every set builds a new level with an entrance and a working exit', () => {
   }
 });
 
+test('an exit that looks right on the ground takes them in, even a few pixels out', () => {
+  for (let set = 0; set < 5; set++) {
+    const spec = newLevel(set, standY(dos, set, 0, 128));
+    const exit = spec.objects.find((o) => o.id === 0);
+    const at = exit.y;
+    for (const dy of [-4, -2, -1, 1, 3, 6]) {
+      exit.y = at + dy;
+      assert.equal(ghostRun(buildCustom(check(spec), dos).level).home, spec.count, `set ${set}, ${dy} out`);
+    }
+  }
+});
+
 test('a staircase stamp is what a builder lays: 12 bricks a staircase, chained', () => {
   const one = level([...ground(0, 400, 120), { k: 'stamp', s: 'build', x: 300, y: 120, dir: 1, n: 1 }], []);
   const three = level([...ground(0, 400, 120), { k: 'stamp', s: 'build', x: 300, y: 120, dir: 1, n: 3 }], []);
