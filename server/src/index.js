@@ -20,7 +20,9 @@ const MAX_LEVEL = 100_000;     // characters of level data
 const MAX_PREVIEW = 300_000;   // bytes of PNG
 const PER_HOUR = 5;            // submissions per address per hour
 const PER_DAY = 40;            // submissions from everyone per day
-const ORIGINS = ['https://ablackett82.github.io', 'http://localhost:8080', 'http://127.0.0.1:8080'];
+const ORIGINS = ['https://ablackett82.github.io'];
+const GAME = 'https://ablackett82.github.io/arcade/games/lemmings/';
+const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/; // testing on this computer
 
 const WORDS = ['FROG', 'BEAR', 'DUCK', 'MOLE', 'NEWT', 'OWL', 'FOX', 'YAK', 'EMU', 'CRAB', 'SEAL', 'WOLF',
   'HARE', 'LION', 'GOAT', 'TOAD', 'SWAN', 'MOTH', 'WASP', 'LYNX', 'PUMA', 'IBIS', 'KIWI', 'DODO', 'BAT',
@@ -129,6 +131,7 @@ async function reviewPage(env, id, url) {
     <p>by <b>${esc(rec.author)}</b> · ${when(rec.created)} · code <b>${id}</b></p>
     <img src="/api/levels/${id}/preview.png" alt="The level">
     <p class="status ${rec.status}">${status}</p>
+    <p><a class="play" href="${GAME}?review=${id}&amp;t=${t}">▶ Play it (or watch how it’s done)</a></p>
     <form method="post" action="/review/${id}?t=${t}">
       <button name="action" value="approve" class="yes">Approve</button>
       <button name="action" value="reject" class="no">Reject</button>
@@ -214,7 +217,7 @@ function decodePng(dataUrl) {
 
 function corsHeaders(req) {
   const origin = req.headers.get('origin');
-  return ORIGINS.includes(origin) ? {
+  return ORIGINS.includes(origin) || LOCAL.test(origin ?? '') ? {
     'access-control-allow-origin': origin,
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-allow-headers': 'content-type',
@@ -249,5 +252,6 @@ function html(body, status = 200) {
   .status { font-weight: bold; } .approved { color: #6d6; } .rejected { color: #e66; }
   form { display: flex; gap: 12px; } button { flex: 1; font-size: 20px; padding: 16px; border: 0; border-radius: 10px; color: #fff; }
   .yes { background: #2a8a3a; } .no { background: #a33; }
+  .play { display: block; text-align: center; padding: 14px; border: 2px solid #8cf; border-radius: 10px; text-decoration: none; font-weight: bold; }
 </style></head><body>${body}</body></html>`, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
 }

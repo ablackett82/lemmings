@@ -14,6 +14,10 @@ import { Keyboard } from './input/keyboard.js';
 import { UI, CHEAT_LIST } from './ui.js';
 import { DosData } from './dos/dosdata.js';
 import * as dosFiles from './dos/files.js';
+import { Editor } from './editor/editor.js';
+import { buildCustom } from './editor/build.js';
+import { Recorder, Player, replayTo } from './editor/replay.js';
+import * as shared from './editor/store.js';
 
 const ITER_MS = 60;
 const STORE = 'lemmings.';
@@ -61,6 +65,9 @@ function main() {
   let acc = 0, last = performance.now(), frameNo = 0, endDelay = 0;
   let flash = [];
   let demo = makeDemo();
+  // a level that isn't one of the packs': { kind: 'editor' | 'shared' | 'review',
+  // spec, level, code?, rec (the game so far, as inputs), player (watching how) }
+  let custom = null;
   const hover = { x: 0, y: 0, on: false, touch: false };
 
   ui.setOptions(opts);
@@ -98,7 +105,9 @@ function main() {
     demo = makeDemo();
     ui.setPlaying(false);
     ui.close();
-    ui.showBar([['Play', () => toPreview(firstUndone()), true], ['Choose level', chooseLevel]]);
+    custom = null;
+    ui.setMenuFor(null, false);
+    ui.showBar([['Play', () => toPreview(firstUndone()), true], ['Choose level', chooseLevel], ['Our levels', openShared], ['Make levels', openEditor]]);
   }
   const firstUndone = () => { for (let i = 0; i < pack.list.length; i++) if (!done.has(i)) return i; return levelNo; };
 
@@ -108,6 +117,8 @@ function main() {
   }
 
   function toPreview(n) {
+    custom = null;
+    ui.setMenuFor(null, false);
     levelNo = Math.max(0, Math.min(pack.list.length - 1, n));
     store.set('level' + pack.key, levelNo);
     spec = pack.level(levelNo); // the level description, built (the games don't change it)
@@ -120,8 +131,13 @@ function main() {
     ui.showBar([['Start', startLevel, true], ['Choose level', chooseLevel]]);
   }
 
-  function startLevel() {
+  function startLevel(watch = false) {
     if (!g || g.iteration > 0) { g = new Game(spec); applyAssist(); }
+    if (custom) {
+      custom.rec = new Recorder();
+      custom.player = watch === true && custom.spec.proof ? new Player(custom.spec.proof.log) : null;
+      ui.setMenuFor(custom.kind === 'editor' ? 'Back to editor' : custom.kind === 'shared' ? 'Back to Our levels' : 'Quit', !custom.player);
+    }
     mode = 'play'; paused = false; ff = false; nukeArmed = 0; endDelay = 0; flash = [];
     cheated = anyCheat();
     scrollX = clampScroll(spec.start ?? 0);
@@ -137,6 +153,7 @@ function main() {
     mode = 'result';
     music.stop();
     ui.setPlaying(false);
+    if (custom) { customResult(); return; }
     const passed = g.passed;
     if (passed && !cheated && !g.cheated) { done.add(levelNo); store.set('done' + pack.key, [...done]); }
     if (passed && levelNo + 1 < pack.list.length) store.set('level' + pack.key, levelNo + 1);
@@ -146,6 +163,96 @@ function main() {
         : [['Try again', startLevel, true], ['Choose level', chooseLevel]];
     ui.showBar(buttons);
   }
+
+  // ---- levels made in the editor, and shared ones ----
+  const editor = new Editor(document.getElementById('editor'), {
+    dos: () => dos,
+    test: (s, level) => { playCustom({ kind: 'editor', spec: s, level }); startLevel(); },
+    close: () => { editor.hide(); toTitle(); },
+  });
+
+  function openEditor() {
+    mode = 'editor'; g = null; custom = null;
+    music.stop();
+    ui.close(); ui.showBar([]); ui.setPlaying(false);
+    editor.home();
+  }
+
+  /** Shows a custom level's preview screen. c: { kind, spec, level, code? } */
+  function playCustom(c) {
+    custom = c;
+    spec = c.level;
+    g = new Game(spec);
+    applyAssist();
+    mode = 'preview'; paused = false;
+    music.stop();
+    ui.setPlaying(false);
+    ui.close();
+    ui.setMenuFor(c.kind === 'editor' ? 'Back to editor' : c.kind === 'shared' ? 'Back to Our levels' : 'Quit', true);
+    const bar = [['Start', () => startLevel(), true]];
+    if (c.spec.proof) bar.push(['Watch how', () => startLevel(true)]);
+    if (c.kind === 'shared') bar.push(['Make my own version', () => { mode = 'editor'; ui.showBar([]); editor.remix(c.spec); }]);
+    bar.push([c.kind === 'editor' ? 'Back to editor' : c.kind === 'shared' ? 'Our levels' : 'Title', leaveCustom]);
+    ui.showBar(bar);
+  }
+
+  function leaveCustom(win = null) {
+    const c = custom;
+    music.stop();
+    ui.close();
+    if (c?.kind === 'editor') { mode = 'editor'; g = null; ui.showBar([]); ui.setPlaying(false); editor.back(win); return; }
+    if (c?.kind === 'shared') { toTitle(); openShared(); return; }
+    toTitle();
+  }
+
+  function customResult() {
+    const c = custom, passed = g.passed, watched = !!c.player;
+    const fair = passed && !watched && !cheated && !g.cheated;
+    if (fair && c.kind === 'shared') shared.markSharedDone(c.code);
+    const buttons = [];
+    if (c.kind === 'editor') {
+      buttons.push(['Back to editor', () => leaveCustom(fair ? c.rec.log : null), true], [passed ? 'Play again' : 'Try again', () => startLevel()]);
+    } else {
+      buttons.push([passed ? 'Play again' : 'Try again', () => startLevel(), !passed]);
+      if (c.spec.proof && !watched) buttons.push(['Watch how', () => startLevel(true)]);
+      buttons.push([c.kind === 'shared' ? 'Our levels' : 'Title', () => leaveCustom(), passed]);
+    }
+    ui.showBar(buttons);
+  }
+
+  // rewind: play the game again from the start, up to 5 seconds ago
+  ui.on.rewind = () => {
+    ui.close();
+    if (!custom?.rec || custom.player) { paused = false; return; }
+    const t = Math.max(0, g.iteration - 5 * 17);
+    const assist = { ...g.assist };
+    g = replayTo(spec, custom.rec.log, t, assist);
+    custom.rec.cut(t);
+    ff = false; nukeArmed = 0; flash = []; endDelay = 0;
+    paused = true;
+  };
+
+  async function openShared() {
+    if (mode === 'editor') editor.hide();
+    if (mode !== 'title') toTitle();
+    paused = true;
+    ui.showShared([], new Set(), 'Loading…');
+    try {
+      const list = await shared.sharedList();
+      ui.showShared(list.map((l) => ({ ...l, picture: shared.previewUrl(l.id) })), shared.sharedDone());
+    } catch (err) { ui.showShared([], new Set(), err.message); }
+  }
+
+  async function openSharedLevel(code, t, kind = 'shared') {
+    if (!dos) { ui.showShared([], new Set(), 'The game is still loading. Try again in a moment.'); return; }
+    try {
+      const rec = await shared.sharedLevel(code, t);
+      const { level } = buildCustom(rec.spec, dos);
+      ui.close();
+      playCustom({ kind, spec: rec.spec, level, code });
+    } catch (err) { ui.showShared([], new Set(), err.message); }
+  }
+  ui.on.pickShared = (code) => openSharedLevel(code);
 
   // ---- the menus ----
   ui.on.option = setOption;
@@ -178,6 +285,11 @@ function main() {
     try { useFiles(files); } catch (err) { dos = null; dosStatus(`Couldn't read the saved files: ${err.message}`); return; }
     dosStatus();
     if (opts.pack === 'dos' && mode === 'title') { usePack(); toTitle(); }
+    if (editor.open) editor.home();
+    // a link to a shared level (?level=CODE), or an approver's (?review=CODE&t=...)
+    const q = new URLSearchParams(location.search);
+    if (q.get('review')) openSharedLevel(q.get('review').toUpperCase(), q.get('t'), 'review');
+    else if (q.get('level')) openSharedLevel(q.get('level').toUpperCase());
   }).catch(() => {}).finally(() => { if (!dos && !sound.hasSamples) dosStatus(); });
   ui.on.loadFiles = async (list) => {
     dosStatus('Reading...');
@@ -205,9 +317,9 @@ function main() {
   ui.on.menu = () => { if (mode === 'play') { paused = true; ui.open('menu'); } };
   ui.on.resume = () => { ui.close(); paused = false; };
   ui.on.restart = () => { ui.close(); startLevel(); };
-  ui.on.skip = () => { ui.close(); if (g) { cheated = true; g.cheated = true; } toPreview(levelNo + 1 < pack.list.length ? levelNo + 1 : levelNo); };
+  ui.on.skip = () => { if (custom) return;  ui.close(); if (g) { cheated = true; g.cheated = true; } toPreview(levelNo + 1 < pack.list.length ? levelNo + 1 : levelNo); };
   ui.on.chooseLevel = chooseLevel;
-  ui.on.title = toTitle;
+  ui.on.title = () => { if (custom) leaveCustom(); else toTitle(); };
   ui.on.pickLevel = (i) => toPreview(i);
   ui.on.closed = () => { if (mode === 'play' && !ui.anyOpen) paused = false; };
   ui.on.opened = (name) => { if (mode === 'play' && name !== 'menu') paused = true; };
@@ -236,9 +348,11 @@ function main() {
   function tapWorld(px, py, touch) {
     if (mode !== 'play' || g.finished) return;
     if (paused && !opts.pauseAssign) return;
+    if (custom?.player) return; // watching
     const { L, ok } = pick(px, py, touch);
     if (!L || !ok) return;
     g.assign(selected, L);
+    custom?.rec?.assign(g, selected, L);
     sound.play(['assign']);
     flash.push({ x: L.x, y: L.y, t: 0 });
   }
@@ -250,7 +364,8 @@ function main() {
     if (b === 'ff') { ff = !ff; return; }
     if (b === 'nuke') {
       if (g.nuking) return;
-      if (nukeArmed > 0) { g.nuke(); nukeArmed = 0; paused = false; } else nukeArmed = 25;
+      if (custom?.player) return;
+      if (nukeArmed > 0) { g.nuke(); custom?.rec?.nuke(g); nukeArmed = 0; paused = false; } else nukeArmed = 25;
     }
   }
 
@@ -310,7 +425,7 @@ function main() {
   stage.addEventListener('pointercancel', up);
   stage.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  window.__lem = { get g() { return g; }, get mode() { return mode; }, toPreview, startLevel, sound, get pack() { return pack; } }; // debug handle
+  window.__lem = { get g() { return g; }, get mode() { return mode; }, get custom() { return custom; }, toPreview, startLevel, sound, editor, get pack() { return pack; } }; // debug handle
 
   // ---- layout ----
   function fit() {
@@ -370,18 +485,18 @@ function main() {
   function drawPreview() {
     screen.clear();
     overview(6);
-    screen.centred(48, spec.number ? `${spec.rating.toUpperCase()} ${spec.number}` : `LEVEL ${levelNo + 1}`, PINK);
+    screen.centred(48, spec.custom ? spec.rating.toUpperCase() : spec.number ? `${spec.rating.toUpperCase()} ${spec.number}` : `LEVEL ${levelNo + 1}`, PINK);
     screen.centred(60, spec.name, WHITE, 2);
     const lines = [
       [`NUMBER OF LEMMINGS ${spec.count}`, [80, 160, 255]],
       [`${g.neededPercent}% TO BE SAVED`, GREEN],
       [`RELEASE RATE ${spec.rate}`, YELLOW],
       [opts.noTimeLimit ? 'NO TIME LIMIT' : `TIME ${spec.time} MINUTE${spec.time === 1 ? '' : 'S'}`, [100, 230, 230]],
-      [`RATING ${spec.rating}`, PINK],
+      ...(spec.custom ? [] : [[`RATING ${spec.rating}`, PINK]]),
     ];
     lines.forEach(([s, c], i) => screen.centred(82 + i * 11, s, c));
     if (spec.hint) wrap(spec.hint.toUpperCase(), 50).forEach((s, i) => screen.centred(142 + i * 9, s, [170, 170, 190]));
-    if (done.has(levelNo)) screen.text(4, 48, 'DONE', YELLOW);
+    if (custom ? custom.kind === 'shared' && shared.sharedDone().has(custom.code) : done.has(levelNo)) screen.text(4, 48, 'DONE', YELLOW);
     if (frameNo & 32) screen.centred(186, 'TAP TO START', WHITE);
   }
 
@@ -398,7 +513,9 @@ function main() {
             : g.in === 0 ? 'OH DEAR. NOT ONE LEMMING MADE IT. TRY A DIFFERENT IDEA!'
               : 'NOT QUITE. HAVE ANOTHER GO - YOU CAN DO IT!';
     wrap(msg, 44).forEach((s, i) => screen.centred(100 + i * 11, s, [200, 200, 220]));
-    if (cheated && passed) screen.centred(150, 'CHEATS WERE ON, SO NO TICK THIS TIME', [255, 110, 110]);
+    if (custom?.player) screen.centred(150, 'THAT WAS HOW ITS MAKER DID IT', [170, 170, 190]);
+    else if (cheated && passed) screen.centred(150, custom?.kind === 'editor' ? 'CHEATS WERE ON: BEAT IT WITHOUT THEM TO SHARE IT' : 'CHEATS WERE ON, SO NO TICK THIS TIME', [255, 110, 110]);
+    else if (custom?.kind === 'editor' && passed) screen.centred(150, 'BEATEN! NOW YOU CAN SHARE IT', YELLOW);
   }
 
   function wrap(s, n) {
@@ -411,10 +528,11 @@ function main() {
   // ---- keyboard ----
   function keys() {
     if (keyboard.consume('KeyM')) setOption('sound', !opts.sound), ui.setOptions(opts);
-    if (keyboard.consume('Escape')) { if (mode === 'play') ui.on.menu(); else if (mode !== 'title') toTitle(); }
+    if (mode === 'editor') return;
+    if (keyboard.consume('Escape')) { if (mode === 'play') ui.on.menu(); else if (custom) leaveCustom(); else if (mode !== 'title') toTitle(); }
     if (mode === 'preview' && keyboard.consume('Space', 'Enter')) startLevel();
     if (mode === 'title' && keyboard.consume('Space', 'Enter')) toPreview(firstUndone());
-    if (mode === 'result' && keyboard.consume('Space', 'Enter')) { if (g.passed && levelNo + 1 < pack.list.length) toPreview(levelNo + 1); else startLevel(); }
+    if (mode === 'result' && keyboard.consume('Space', 'Enter')) { if (custom) startLevel(); else if (g.passed && levelNo + 1 < pack.list.length) toPreview(levelNo + 1); else startLevel(); }
     if (mode !== 'play') return;
     SKILLS.forEach((s, i) => { if (keyboard.consume(`Digit${i + 1}`, `F${i + 3}`)) pressButton(s); });
     if (keyboard.consume('KeyP', 'Pause')) pressButton('pause');
@@ -462,6 +580,7 @@ function main() {
       const events = [];
       let n = 0;
       while (acc >= step && n++ < 12) {
+        if (custom?.player) custom.player.beforeStep(g); else custom?.rec?.beforeStep(g);
         g.step();
         events.push(...g.events);
         acc -= step;
@@ -474,6 +593,7 @@ function main() {
       if (g.finished && ++endDelay > 40) toResult();
     } else acc = 0;
 
+    if (mode === 'editor') { ui.setButtons(null); return; }
     if (mode === 'title') drawTitle();
     else if (mode === 'preview') drawPreview();
     else if (mode === 'result') drawResult();
@@ -489,7 +609,7 @@ function main() {
         scrollX, selected, paused, ff, nukeArmed: nukeArmed > 0, flash,
         hover: h.ok ? h.L : null, hoverCount: h.count, hoverAny: h.L,
         cheats: tags.join(' '),
-        message: paused && !menuOpen ? 'PAUSED' : nukeArmed > 0 ? 'TAP NUKE AGAIN TO BLOW THEM ALL UP' : onlyBlockers() ? 'ONLY BLOCKERS LEFT: NUKE TO FINISH' : null,
+        message: custom?.player && !paused ? 'WATCHING HOW IT IS DONE' : paused && !menuOpen ? 'PAUSED' : nukeArmed > 0 ? 'TAP NUKE AGAIN TO BLOW THEM ALL UP' : onlyBlockers() ? 'ONLY BLOCKERS LEFT: NUKE TO FINISH' : null,
       });
     }
     ui.setButtons(mode === 'play' && opts.bigButtons ? clearButtons() : null);

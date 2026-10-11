@@ -10,8 +10,10 @@ export class Keyboard {
   constructor(target = window) {
     this.down = new Set();
     this.pressed = new Set(); // edge-triggered, cleared by consume()
+    // typing (a level's name in the editor) isn't playing
+    const typing = (e) => e.target?.closest?.('input, textarea, select, #editor');
     target.addEventListener('keydown', (e) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || typing(e)) return;
       if (!e.repeat) this.pressed.add(e.code);
       const a = MAP[e.code];
       if (a) { this.down.add(a); e.preventDefault(); }

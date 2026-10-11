@@ -26,6 +26,7 @@ export class UI {
       <div class="ui-panel ui-menu" hidden>
         <h2>Paused</h2>
         <button class="ui-resume" type="button">Resume</button>
+        <button class="ui-rewind" type="button" hidden>Back 5 seconds</button>
         <button class="ui-restart" type="button">Restart level</button>
         <button class="ui-skip" type="button">Skip level (cheat)</button>
         <button class="ui-levels-btn" type="button">Choose level</button>
@@ -59,9 +60,15 @@ export class UI {
         <div class="ui-grid"></div>
         <button class="ui-close" type="button">Back</button>
       </div>
+      <div class="ui-panel ui-shared" hidden>
+        <h2>Our levels</h2>
+        <p class="ui-note ui-shared-status"></p>
+        <div class="ui-shared-list"></div>
+        <button class="ui-close" type="button">Back</button>
+      </div>
       <div class="ui-bar" hidden></div>`;
     this.q = (s) => el.querySelector(s);
-    this.panels = { menu: this.q('.ui-menu'), settings: this.q('.ui-settings'), levels: this.q('.ui-levels') };
+    this.panels = { menu: this.q('.ui-menu'), settings: this.q('.ui-settings'), levels: this.q('.ui-levels'), shared: this.q('.ui-shared') };
     this.bar = this.q('.ui-bar');
     this.hd = this.q('.ui-hd'); this.hdKeys = [];
     // hooks for main.js
@@ -71,6 +78,7 @@ export class UI {
     this.q('.ui-menu-btn').addEventListener('click', call('menu'));
     this.q('.ui-resume').addEventListener('click', call('resume'));
     this.q('.ui-restart').addEventListener('click', call('restart'));
+    this.q('.ui-rewind').addEventListener('click', call('rewind'));
     this.q('.ui-skip').addEventListener('click', call('skip'));
     this.q('.ui-levels-btn').addEventListener('click', call('chooseLevel'));
     this.q('.ui-title').addEventListener('click', call('title'));
@@ -137,6 +145,36 @@ export class UI {
       grid.appendChild(b);
     });
     this.open('levels');
+  }
+
+  /**
+   * The pause menu for a level that isn't one of the packs' (one being made,
+   * or a shared one): quit: what Quit says, or null for the packs' menu.
+   */
+  setMenuFor(quit, rewind) {
+    this.q('.ui-rewind').hidden = !rewind;
+    this.q('.ui-skip').hidden = !!quit;
+    this.q('.ui-levels-btn').hidden = !!quit;
+    this.q('.ui-title').textContent = quit ?? 'Quit to title';
+  }
+
+  /** Our levels: items [{ id, name, author, picture }], done (Set of ids), or a message instead. */
+  showShared(items, done, message) {
+    const list = this.q('.ui-shared-list');
+    this.q('.ui-shared-status').textContent = message ?? (items.length ? 'Levels made by people who play this. Tap one to play it.' : 'No levels shared yet. Make one in Make levels!');
+    list.innerHTML = '';
+    for (const it of items ?? []) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.innerHTML = `<img alt="" loading="lazy"><span class="t"></span><span class="a"></span><span class="c"></span>`;
+      b.querySelector('img').src = it.picture;
+      b.querySelector('.t').textContent = it.name;
+      b.querySelector('.a').textContent = `by ${it.author} · ${it.id}`;
+      b.querySelector('.c').textContent = done.has(it.id) ? '✓ Done' : '';
+      b.addEventListener('click', () => this.on.pickShared?.(it.id));
+      list.appendChild(b);
+    }
+    this.open('shared');
   }
 
   /** Where the panel's buttons are on the page (CSS px): the clear buttons go over them. */

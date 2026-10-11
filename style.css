@@ -119,3 +119,113 @@ html, body {
     text-transform: uppercase; letter-spacing: 0.08em; pointer-events: none;
   }
 }
+
+/* ---- the level editor (src/editor/editor.js) ---- */
+#editor {
+  position: fixed; inset: 0; z-index: 10; background: #101018; color: #eee;
+  font: 15px/1.3 system-ui, -apple-system, sans-serif;
+  padding: var(--sat-t) var(--sat-r) var(--sat-b) var(--sat-l);
+  display: flex; flex-direction: column;
+}
+#editor[hidden], #editor [hidden] { display: none !important; }
+#editor button {
+  font: inherit; font-weight: 600; color: #fff; background: #2a2c3c; border: 1px solid #44475e; border-radius: 8px;
+  padding: 8px 12px; min-height: 40px; cursor: pointer; touch-action: manipulation; white-space: nowrap;
+}
+#editor button:active { background: #3c3f56; }
+#editor button.on { background: #2d5a34; border-color: var(--green); }
+#editor button.main { background: var(--green); color: #000; border-color: var(--green); }
+#editor button:disabled { opacity: 0.4; cursor: default; }
+#editor h2 { margin: 0; font-size: 20px; }
+#editor h3 { margin: 12px 0 8px; font-size: 16px; color: var(--pink); }
+#editor .ed-note, #editor .ed-hint { margin: 0; color: #aab; font-size: 14px; }
+#editor .ed-err { margin: 0; color: #ff8080; min-height: 1.2em; }
+
+#editor .ed-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: #181a26; border-bottom: 1px solid #2c2e40; flex-wrap: wrap; }
+#editor .ed-gap { flex: 1; }
+#editor .ed-name { max-width: 30vw; overflow: hidden; text-overflow: ellipsis; background: transparent; border-color: transparent; font-size: 17px; }
+#editor .ed-undo, #editor .ed-redo, #editor .ed-zoomin, #editor .ed-zoomout { min-width: 44px; font-size: 20px; padding: 4px 8px; }
+#editor .ed-toggle { color: #889; }
+#editor .ed-toggle.on { color: #fff; }
+
+/* my levels */
+#editor .ed-home { display: flex; flex-direction: column; height: 100%; }
+#editor .ed-home-body { flex: 1; overflow: auto; padding: 12px 16px 24px; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+#editor .ed-sets { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+#editor .ed-sets button { display: flex; flex-direction: column; gap: 6px; padding: 6px; align-items: stretch; }
+#editor .ed-sets img { width: 100%; aspect-ratio: 4 / 1; image-rendering: pixelated; background: #000; border-radius: 4px; }
+#editor .ed-mine { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+#editor .ed-card { background: #1a1c28; border: 1px solid #2e3044; border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+#editor .ed-card canvas { width: 100%; aspect-ratio: 10 / 1; background: #000; border-radius: 4px; cursor: pointer; }
+#editor .ed-card-t { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#editor .ed-card-t b { font-size: 16px; }
+#editor .ed-card-b { display: flex; gap: 6px; flex-wrap: wrap; }
+#editor .ed-badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: #2a2c3c; color: #aab; }
+#editor .ed-badge.ok { background: #1f4a26; color: #9ff0a8; }
+#editor .ed-badge.wait { background: #4a3e14; color: #ffe08a; }
+#editor .ed-badge.no { background: #4a1c1c; color: #ffa0a0; }
+
+/* the editor */
+#editor .ed-main { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+#editor .ed-view { position: relative; flex: 1; min-height: 120px; overflow: hidden; touch-action: none; }
+#editor .ed-view canvas { position: absolute; inset: 0; touch-action: none; cursor: crosshair; }
+#editor .ed-selbar {
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; align-items: center; flex-wrap: wrap; justify-content: center;
+  background: rgba(16, 16, 24, 0.92); border: 1px solid #44475e; border-radius: 10px; padding: 4px; max-width: calc(100% - 12px);
+}
+#editor .ed-selbar button { min-width: 44px; padding: 6px 10px; }
+#editor .ed-n { min-width: 2ch; text-align: center; font-weight: 700; }
+#editor .ed-status {
+  position: absolute; left: 6px; bottom: 6px; right: 6px; pointer-events: none; font-size: 13px; color: #ccd;
+  text-shadow: 0 1px 2px #000, 0 0 4px #000;
+}
+#editor .ed-status .ok { color: #8ff09a; } #editor .ed-status .warn { color: #ffd060; }
+#editor .ed-tools { display: flex; gap: 4px; padding: 6px 8px 0; background: #181a26; border-top: 1px solid #2c2e40; overflow-x: auto; touch-action: pan-x; }
+#editor .ed-tools button { flex: 1; min-width: 72px; border-radius: 8px 8px 0 0; border-bottom: 0; }
+#editor .ed-tray { background: #1e2030; padding: 8px; min-height: 92px; max-height: 30vh; overflow: auto; touch-action: pan-x pan-y; }
+#editor .ed-strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; align-items: stretch; -webkit-overflow-scrolling: touch; touch-action: pan-x; }
+#editor .ed-strip button { position: relative; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px; background: #0c0c12; min-width: 60px; }
+#editor .ed-strip button.on { background: #1c3a20; }
+#editor .ed-strip img { image-rendering: pixelated; height: 56px; max-width: 140px; object-fit: contain; }
+#editor .ed-strip span { font-size: 12px; }
+#editor .ed-steel { position: absolute; top: 2px; right: 2px; font-size: 9px !important; background: #556; padding: 1px 4px; border-radius: 4px; }
+#editor .ed-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#editor .ed-row label { display: flex; align-items: center; gap: 8px; }
+#editor .ed-row input[type=range] { width: 220px; accent-color: var(--green); }
+#editor .ed-sep { width: 12px; }
+#editor .ed-stamp { display: flex; align-items: center; gap: 6px; }
+#editor .ed-pic { display: inline-flex; width: 34px; height: 34px; }
+#editor .ed-pic svg { width: 100%; height: 100%; }
+
+/* dialogs */
+#editor .ed-modal { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; padding: 12px; }
+#editor .ed-dialog {
+  background: #1a1c28; border: 2px solid var(--green); border-radius: 12px; padding: 16px; width: min(560px, 100%); max-height: 100%; overflow: auto;
+  display: flex; flex-direction: column; gap: 10px; touch-action: pan-y; -webkit-overflow-scrolling: touch;
+}
+#editor .ed-dialog p { margin: 0; }
+#editor .ed-end { justify-content: flex-end; }
+#editor .ed-text { display: flex; flex-direction: column; gap: 4px; }
+#editor .ed-text input { font: inherit; font-size: 17px; padding: 8px 10px; border-radius: 8px; border: 1px solid #44475e; background: #0c0c12; color: #fff; }
+#editor .ed-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+#editor .ed-num { display: flex; align-items: center; gap: 4px; }
+#editor .ed-num > span:first-child { flex: 1; }
+#editor .ed-num input { width: 3.2em; font: inherit; font-size: 17px; text-align: center; padding: 6px 2px; border-radius: 6px; border: 1px solid #44475e; background: #0c0c12; color: #fff; -moz-appearance: textfield; }
+#editor .ed-num input::-webkit-inner-spin-button { -webkit-appearance: none; }
+#editor .ed-num button { min-width: 40px; padding: 4px; font-size: 18px; }
+#editor .ed-skills { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
+#editor .ed-skill { display: flex; align-items: center; gap: 6px; }
+#editor .ed-skill > span:nth-child(2) { flex: 1; }
+#editor .ed-toast {
+  position: absolute; left: 50%; bottom: calc(var(--sat-b) + 140px); transform: translateX(-50%); background: #000d; border: 1px solid var(--green);
+  padding: 10px 16px; border-radius: 10px; max-width: 90%; text-align: center; pointer-events: none;
+}
+
+/* shared levels (Our levels) */
+#ui .ui-shared { width: min(820px, 94vw); }
+#ui .ui-shared-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+#ui .ui-shared-list button { display: flex; flex-direction: column; align-items: stretch; gap: 6px; text-transform: none; text-align: left; padding: 8px; }
+#ui .ui-shared-list img { width: 100%; aspect-ratio: 10 / 1; image-rendering: pixelated; background: #111; object-fit: cover; }
+#ui .ui-shared-list .t { color: #fff; }
+#ui .ui-shared-list .a { color: #aaa; font-size: 13px; }
+#ui .ui-shared-list .c { color: var(--green); font-size: 13px; }

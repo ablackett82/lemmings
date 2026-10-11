@@ -56,6 +56,37 @@ const bits1 = (src, pos, w, h) => planar(src, pos, w, h, 1);
 // yellow, red, grey for the panel and the explosions); 7 is set per level
 const IN_LEVEL = [[0, 0, 0], [16, 16, 56], [0, 44, 0], [60, 52, 52], [60, 60, 0], [60, 8, 8], [32, 32, 32]];
 
+/** A level's palette: 0..7 the in-level colours, 8..15 the graphic set's (or the picture's), and the builder's bricks. */
+export function levelPalette(custom) {
+  const palette = Array.from({ length: 256 }, () => [0, 0, 0]);
+  IN_LEVEL.forEach((c, k) => { palette[k] = vga(c, 0); });
+  palette[7] = custom[0];
+  custom.forEach((c, k) => { palette[8 + k] = c; });
+  for (let k = 0; k < 12; k++) palette[BRICK + k] = custom[0];
+  return palette;
+}
+
+/**
+ * Draws a terrain piece into the world at (x, y), its top left: upside down
+ * (flipV), mirrored (flipH, which DOS can't do), only where there's nothing
+ * yet (behind), or cutting a hole of its shape (erase).
+ */
+export function drawPiece(pix, piece, x, y, { flipV, flipH, behind, erase } = {}) {
+  const { w, h, img, mask } = piece;
+  for (let j = 0; j < h; j++) {
+    const py = y + j;
+    if (py < 0 || py >= WORLD_H) continue;
+    const sj = flipV ? h - 1 - j : j;
+    for (let i = 0; i < w; i++) {
+      const px = x + i, si = sj * w + (flipH ? w - 1 - i : i);
+      if (px < 0 || px >= WORLD_W || !mask[si]) continue;
+      const at = py * WORLD_W + px;
+      if (erase) pix[at] = 0;
+      else if (!behind || !pix[at]) pix[at] = 8 + img[si];
+    }
+  }
+}
+
 export class DosData {
   constructor(files) {
     const need = (n) => { const f = files[n]; if (!f) throw new Error(`${n.toUpperCase()} is missing`); return f; };
@@ -229,14 +260,9 @@ export class DosData {
     const setNo = be16(raw, 0x1a), specNo = be16(raw, 0x1c);
     const set = this.set(setNo);
 
-    // the palette: 0..7 the in-level colours, 8..15 the graphic set's (or the picture's)
     let custom = set.custom, terrain;
     if (specNo) { const sp = this.special(specNo - 1); custom = sp.pal; terrain = sp.pix; } else terrain = this.drawTerrain(raw, set);
-    const palette = Array.from({ length: 256 }, () => [0, 0, 0]);
-    IN_LEVEL.forEach((c, k) => { palette[k] = vga(c, 0); });
-    palette[7] = custom[0];
-    custom.forEach((c, k) => { palette[8 + k] = c; });
-    for (let k = 0; k < 12; k++) palette[BRICK + k] = custom[0];
+    const palette = levelPalette(custom);
 
     // steel
     const steel = [];
@@ -278,20 +304,8 @@ export class DosData {
       const yv = (v >>> 7) & 0x1ff, y = yv - (yv > 256 ? 516 : 4);
       const piece = set.pieces[v & 0x3f];
       if (!piece) continue;
-      const flags = (v >>> 29) & 7, flip = flags & 2, behind = flags & 4, erase = flags & 1;
-      const { w, h, img, mask } = piece;
-      for (let j = 0; j < h; j++) {
-        const py = y + j;
-        if (py < 0 || py >= WORLD_H) continue;
-        const sj = flip ? h - 1 - j : j;
-        for (let i = 0; i < w; i++) {
-          const px = x + i;
-          if (px < 0 || px >= WORLD_W || !mask[sj * w + i]) continue;
-          const at = py * WORLD_W + px;
-          if (erase) pix[at] = 0;
-          else if (!behind || !pix[at]) pix[at] = 8 + img[sj * w + i];
-        }
-      }
+      const flags = (v >>> 29) & 7;
+      drawPiece(pix, piece, x, y, { flipV: flags & 2, behind: flags & 4, erase: flags & 1 });
     }
     return pix;
   }
