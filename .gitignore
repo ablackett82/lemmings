@@ -1,3 +1,5 @@
 node_modules/
 reference/
 .DS_Store
+.wrangler/
+.dev.vars

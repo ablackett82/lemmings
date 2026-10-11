@@ -1,0 +1,8 @@
+name = "lemmings-levels"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+
+[[kv_namespaces]]
+binding = "LEVELS"
+id = "c6e5680f61b44b25b76e022719094cb8"
