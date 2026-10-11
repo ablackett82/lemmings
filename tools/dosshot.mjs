@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Renders an original DOS level (from the game files in reference/lemming1.pc,
+// Renders an original DOS level (from the bundled game files in data/dos/,
 // or the folder in LEMMINGS_DOS) to a PNG of the whole level:
 //   node tools/dosshot.mjs out.png <level 1..120> [iterations]
 import fs from 'node:fs';
@@ -8,7 +8,7 @@ import { DosData, NEEDED } from '../src/dos/dosdata.js';
 import { Game, WORLD_W, WORLD_H } from '../src/game/engine.js';
 import { Raster } from './png.js';
 
-export function loadDosFolder(dir = process.env.LEMMINGS_DOS ?? 'reference/lemming1.pc') {
+export function loadDosFolder(dir = process.env.LEMMINGS_DOS ?? 'data/dos') {
   const files = {};
   for (const f of fs.readdirSync(dir)) if (NEEDED.includes(f.toLowerCase())) files[f.toLowerCase()] = new Uint8Array(fs.readFileSync(path.join(dir, f)));
   return new DosData(files);

@@ -83,26 +83,25 @@ to see it.
 
 ## The original levels
 
-With a copy of DOS Lemmings, the game plays the original 120 levels (Fun,
-Tricky, Taxing, Mayhem) with the original terrain, objects, lemmings, dig
-masks and skill panel. In settings (the cog), **Load game files** and pick
-these files from the game, or a .zip with them in:
+The game plays the original 120 levels (Fun, Tricky, Taxing, Mayhem) with the
+original terrain, objects, lemmings, dig masks and skill panel, plus the
+Windows 95 version's sounds and music (the voices, "Let's go!", "Oh no!",
+"Yippee!", the traps' own sounds, and 15 tunes played on a small General MIDI
+synth in `src/render/gm.js`) — all licensed for this app and bundled in
+`data/dos/`. The first time the game runs, it fetches them automatically and
+keeps them on the device (IndexedDB); after that they load from there, the
+same as if the player had picked their own copy. **Levels** in settings
+switches between the original levels and the new ones, each with its own
+ticks.
+
+**Load game files** (in settings, the cog) still lets a player load their own
+copy instead — picking the files below, or a .zip with them in — which
+replaces the bundled ones on that device; **Forget these files** goes back to
+the bundled copy. Nothing picked is ever uploaded; it stays on the device.
 
 `MAIN.DAT`, `ODDTABLE.DAT`, `LEVEL000.DAT`-`LEVEL009.DAT`,
-`GROUND0O.DAT`-`GROUND4O.DAT`, `VGAGR0.DAT`-`VGAGR4.DAT`, `VGASPEC0.DAT`-`VGASPEC3.DAT`
-
-They're kept on the device (IndexedDB) and never uploaded; **Levels** in
-settings switches between the original levels and the new ones, each with its
-own ticks. The files are never part of this repository (`reference/` is
-ignored); on localhost the dev server's copy in `reference/lemming1.pc` is used
-when nothing has been loaded.
-
-The sounds and music can come from the Windows 95 version: its `SOUND\*.WAV`
-(the voices, "Let's go!", "Oh no!", "Yippee!", and the traps' own sounds)
-and `MUSIC\*.MID` (15 tunes, played on a small General MIDI synth in
-`src/render/gm.js`). Load them the same way, with the DOS files or after them
-(its zip works as it is; its own GROUND files are ignored). Without them the
-game uses its synthesized sounds and tunes.
+`GROUND0O.DAT`-`GROUND4O.DAT`, `VGAGR0.DAT`-`VGAGR4.DAT`, `VGASPEC0.DAT`-`VGASPEC3.DAT`,
+and the Windows 95 version's `SOUND\*.WAV` and `MUSIC\*.MID`.
 
 `src/dos/` reads them: `dat.js` unpacks the .DAT compression, `dosdata.js`
 reads the levels, graphic sets, sprites, masks and panel (formats as

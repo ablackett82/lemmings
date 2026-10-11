@@ -1,8 +1,8 @@
-// Getting the DOS game's files onto the device: picked by the player (the
-// .DAT files themselves, or a .zip of them), kept in IndexedDB so they're
-// there next time. Nothing is uploaded anywhere; the files never leave the
-// device. On localhost, the dev server's copy in reference/lemming1.pc is used
-// when nothing has been loaded.
+// Getting the DOS game's files onto the device: bundled in data/dos/ (licensed
+// for this app) and fetched automatically the first time, or picked by the
+// player (the .DAT files themselves, or a .zip of them) if they want to use
+// their own instead. Either way they're kept in IndexedDB so they're there
+// next time — nothing is uploaded anywhere, the files never leave the device.
 
 import { NEEDED } from './dosdata.js';
 import { SOUND_FILES } from '../render/audio.js';
@@ -32,22 +32,27 @@ async function tx(mode, fn) {
   });
 }
 
-/** The saved files, { name: Uint8Array }, or null. */
+/**
+ * The saved files, { name: Uint8Array }, or null. Prefers whatever's already
+ * saved (so a player who picked their own files, or is mid-game, never has
+ * that replaced); only reaches for the bundled copy when nothing's saved yet.
+ */
 export async function loadSaved() {
   try {
     const rec = await tx('readonly', (s) => s.get(KEY));
     if (rec) return Object.fromEntries(Object.entries(rec).map(([k, v]) => [k, new Uint8Array(v)]));
   } catch { /* no IndexedDB (private mode) */ }
-  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return fetchDev();
-  return null;
+  const files = await fetchBundled();
+  if (files) await save(files).catch(() => {}); // so it's not re-downloaded every visit
+  return files;
 }
 
-async function fetchDev() {
+async function fetchBundled() {
   const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(url); return new Uint8Array(await r.arrayBuffer()); };
   const files = {};
-  try { for (const n of NEEDED) files[n] = await get(`reference/lemming1.pc/${n}`); } catch { return null; }
+  try { for (const n of NEEDED) files[n] = await get(`data/dos/${n}`); } catch { return null; }
   for (const n of EXTRA) {
-    try { files[n] = await get(`reference/win95/Lemmings_95/${n.endsWith('.mid') ? 'MUSIC' : 'SOUND'}/${n.toUpperCase()}`); } catch { /* optional */ }
+    try { files[n] = await get(`data/dos/${n}`); } catch { /* optional */ }
   }
   return files;
 }
