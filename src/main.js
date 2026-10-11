@@ -190,10 +190,15 @@ function main() {
     ui.close();
     ui.setMenuFor(c.kind === 'editor' ? 'Back to editor' : c.kind === 'shared' ? 'Back to Our levels' : 'Quit', true);
     const bar = [['Start', () => startLevel(), true]];
-    if (c.spec.proof) bar.push(['Watch how', () => startLevel(true)]);
+    if (canWatch(c)) bar.push(['Watch how', () => startLevel(true)]);
     if (c.kind === 'shared') bar.push(['Make my own version', () => { mode = 'editor'; ui.showBar([]); editor.remix(c.spec); }]);
     bar.push([c.kind === 'editor' ? 'Back to editor' : c.kind === 'shared' ? 'Our levels' : 'Title', leaveCustom]);
     ui.showBar(bar);
+  }
+
+  /** "Watch how" is a shared level's answer: only once you've done it yourself (reviewing it, always). */
+  function canWatch(c) {
+    return !!c.spec.proof && (c.kind !== 'shared' || shared.sharedDone().has(c.code));
   }
 
   function leaveCustom(win = null) {
@@ -214,7 +219,7 @@ function main() {
       buttons.push(['Back to editor', () => leaveCustom(fair ? c.rec.log : null), true], [passed ? 'Play again' : 'Try again', () => startLevel()]);
     } else {
       buttons.push([passed ? 'Play again' : 'Try again', () => startLevel(), !passed]);
-      if (c.spec.proof && !watched) buttons.push(['Watch how', () => startLevel(true)]);
+      if (canWatch(c) && !watched) buttons.push(['Watch how', () => startLevel(true)]);
       buttons.push([c.kind === 'shared' ? 'Our levels' : 'Title', () => leaveCustom(), passed]);
     }
     ui.showBar(buttons);
