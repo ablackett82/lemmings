@@ -229,3 +229,5 @@ html, body {
 #ui .ui-shared-list .t { color: #fff; }
 #ui .ui-shared-list .a { color: #aaa; font-size: 13px; }
 #ui .ui-shared-list .c { color: var(--green); font-size: 13px; }
+/* in the arcade, its ⌂ button sits top left: keep the editor's buttons clear of it */
+body:has(#arcade-home) #editor .ed-bar { padding-left: calc(var(--sat-l) + 76px); }

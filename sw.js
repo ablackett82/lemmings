@@ -1,6 +1,6 @@
 // Service worker: caches the whole app on install so it launches offline.
 // Bump VERSION whenever any file changes, so clients pick up the new build.
-const VERSION = 'v9';
+const VERSION = 'v10';
 const CACHE = `lemmings-${VERSION}`;
 const FILES = [
   './', 'index.html', 'moved.js', 'style.css', 'manifest.webmanifest',
@@ -10,6 +10,7 @@ const FILES = [
   'src/render/screen.js', 'src/render/font.js', 'src/render/audio.js', 'src/render/music.js',
   'src/input/keyboard.js',
   'src/dos/dat.js', 'src/dos/dosdata.js', 'src/dos/files.js', 'src/dos/midi.js', 'src/dos/wav.js', 'src/render/gm.js', 'src/render/hdicons.js',
+  'src/editor/editor.js', 'src/editor/build.js', 'src/editor/analyse.js', 'src/editor/format.js', 'src/editor/replay.js', 'src/editor/sets.js', 'src/editor/store.js',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 

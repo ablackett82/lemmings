@@ -109,6 +109,45 @@ ccexplore documented them, and as Lemmix and Lemmings.ts read them), `files.js`
 picks, unzips and stores them. `node tools/dosshot.mjs out.png <1..120>` draws
 an original level.
 
+## Making levels
+
+**Make levels** on the title screen opens the editor (`src/editor/`). A level
+is built from one of the original graphic sets (Dirt, Fire, Marble, Pillar,
+Crystal): its own terrain pieces and objects, so it looks like an original.
+
+- **Pieces**: any of the set's pieces; tap to place, drag to move, then
+  mirror, flip, put behind, or make it cut its shape out. The steel ones
+  (marked) are steel.
+- **Lumps**: draw a line and the set's organic lumps are scattered along it,
+  flipped and jumbled, the way the original levels' landscapes are made.
+- **Paint** / **Rubber**: draw ground in the set's texture, or rub it out.
+- **Stamps**: a staircase, bash tunnel, mine, dig hole or bomb crater, made by
+  the engine itself (an invisible lemming given the skill), so it's exactly
+  what a player could make. Tap the top of a staircase for another.
+- **Things**: entrance, exit (its top comes with it), water, fire, traps,
+  one-way walls, decorations.
+
+While editing, the level is played with no skills in the background
+(`analyse.js`): the **trails** show where the lemmings go, and a cross says
+how each ends up (splat, drowned, burnt, trapped, fell out, stuck). **Falls**
+draws a line from every edge a lemming can walk off to where it lands, green
+if it lives and red if it splats, with the drop in pixels; a lemming survives
+a drop of up to 63 (the game's 60, counted its way), and close ones get a red
+mark at the limit. Two fingers pan and pinch; undo and redo; the arrow
+buttons (or keys) nudge one pixel.
+
+**▶ Test** plays it. The game is recorded as its inputs (`replay.js`; the
+engine is deterministic), so the pause menu's **Back 5 seconds** replays up
+to then, and a win with no cheats is saved with the level as its proof. Any
+change to how the level plays clears the proof.
+
+**Share** (on a beaten level, in My levels) sends it to the levels server
+(`server/`): it waits until it's approved (a Telegram message with a picture
+and an approve link), then shows in **Our levels** for everyone, with
+**Watch how** to see its maker's win. A shared level opens straight from
+`?level=CODE`. Levels made on a device are kept in its localStorage
+(`lemmings.mine`).
+
 ## Develop
 
 ```
@@ -119,4 +158,6 @@ npm test
 `node tools/icons.mjs` redraws the home-screen icons;
 `node tools/sheet.mjs out.png [animations] [scale]` draws the lemming sprites;
 `node tools/try.mjs [n] [--no-solve]` plays levels and reports how they went.
+`npm test` includes `test/editor.test.js`: stamps, falls, the ghost run, and
+recorded wins replaying (and rewinding) exactly.
 Bump `VERSION` in `sw.js` when anything changes so installed copies update.
