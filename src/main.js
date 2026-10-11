@@ -425,7 +425,7 @@ function main() {
   stage.addEventListener('pointercancel', up);
   stage.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  window.__lem = { get g() { return g; }, get mode() { return mode; }, get custom() { return custom; }, toPreview, startLevel, sound, editor, get pack() { return pack; } }; // debug handle
+  window.__lem = { get g() { return g; }, get mode() { return mode; }, get custom() { return custom; }, get scrollX() { return scrollX; }, toPreview, startLevel, sound, editor, get pack() { return pack; } }; // debug handle
 
   // ---- layout ----
   function fit() {
