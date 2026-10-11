@@ -494,7 +494,8 @@ export class Editor {
     const proof = this.spec.proof;
     this.entry.spec = { ...JSON.parse(json) };
     if (proof) this.entry.spec.proof = proof;
-    this.sel = null;
+    // keep what was picked, if it's still there
+    if (this.sel && !this.item()) this.sel = null;
     this.changed();
     this.selection();
   }
@@ -690,7 +691,7 @@ export class Editor {
     cv.addEventListener('wheel', (e) => {
       e.preventDefault();
       const p = pos(e);
-      if (e.ctrlKey || e.metaKey) this.zoomBy(Math.exp(-e.deltaY * 0.01), p.sx, p.sy);
+      if (e.ctrlKey || e.metaKey) this.zoomBy(Math.exp(-Math.max(-60, Math.min(60, e.deltaY)) * 0.004), p.sx, p.sy);
       else {
         const dx = e.shiftKey ? e.deltaY : e.deltaX + (Math.abs(e.deltaX) < 1 ? e.deltaY : 0);
         const dy = e.shiftKey ? 0 : Math.abs(e.deltaX) < 1 ? 0 : e.deltaY;
