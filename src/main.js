@@ -136,7 +136,8 @@ function main() {
     if (custom) {
       custom.rec = new Recorder();
       custom.player = watch === true && custom.spec.proof ? new Player(custom.spec.proof.log) : null;
-      ui.setMenuFor(custom.kind === 'editor' ? 'Back to editor' : custom.kind === 'shared' ? 'Back to Our levels' : 'Quit', !custom.player);
+      ui.setMenuFor(custom.kind === 'editor' ? 'Back to editor' : custom.kind === 'shared' ? 'Back to Our levels' : 'Quit', canRewind());
+      if (custom.kind === 'shared' && !custom.player) shared.recordPlay(custom.code, false);
     }
     mode = 'play'; paused = false; ff = false; nukeArmed = 0; endDelay = 0; flash = [];
     cheated = anyCheat();
@@ -188,12 +189,18 @@ function main() {
     music.stop();
     ui.setPlaying(false);
     ui.close();
-    ui.setMenuFor(c.kind === 'editor' ? 'Back to editor' : c.kind === 'shared' ? 'Back to Our levels' : 'Quit', true);
+    ui.setMenuFor(c.kind === 'editor' ? 'Back to editor' : c.kind === 'shared' ? 'Back to Our levels' : 'Quit', canRewind());
     const bar = [['Start', () => startLevel(), true]];
     if (canWatch(c)) bar.push(['Watch how', () => startLevel(true)]);
+    if (c.kind === 'shared' && c.stats?.comments) bar.push([`What people said (${c.stats.comments})`, () => showSaid(c)]);
     if (c.kind === 'shared') bar.push(['Make my own version', () => { mode = 'editor'; ui.showBar([]); editor.remix(c.spec); }]);
     bar.push([c.kind === 'editor' ? 'Back to editor' : c.kind === 'shared' ? 'Our levels' : 'Title', leaveCustom]);
     ui.showBar(bar);
+  }
+
+  /** Going back 5 seconds: while making a level or checking one, not on a published one (too easy). */
+  function canRewind() {
+    return !!custom && !custom.player && custom.kind !== 'shared';
   }
 
   /** "Watch how" is a shared level's answer: only once you've done it yourself (reviewing it, always). */
@@ -210,25 +217,51 @@ function main() {
     toTitle();
   }
 
-  function customResult() {
+  /** again: just the buttons once more (after rating it), not a second win. */
+  function customResult(again = false) {
     const c = custom, passed = g.passed, watched = !!c.player;
-    const fair = passed && !watched && !cheated && !g.cheated;
-    if (fair && c.kind === 'shared') shared.markSharedDone(c.code);
+    const fair = passed && !watched && !cheated && !g.cheated && !again;
+    if (fair && c.kind === 'shared') { shared.markSharedDone(c.code); shared.recordPlay(c.code, true); }
     const buttons = [];
     if (c.kind === 'editor') {
       buttons.push(['Back to editor', () => leaveCustom(fair ? c.rec.log : null), true], [passed ? 'Play again' : 'Try again', () => startLevel()]);
     } else {
       buttons.push([passed ? 'Play again' : 'Try again', () => startLevel(), !passed]);
       if (canWatch(c) && !watched) buttons.push(['Watch how', () => startLevel(true)]);
+      const canRate = c.kind === 'shared' && shared.sharedDone().has(c.code);
+      if (canRate) buttons.push([shared.myRating(c.code) ? 'Change my stars' : 'Give it stars', () => askRating(c)]);
       buttons.push([c.kind === 'shared' ? 'Our levels' : 'Title', () => leaveCustom(), passed]);
+      // the first time it's won here, ask straight away
+      if (canRate && fair && !shared.myRating(c.code)) setTimeout(() => { if (custom === c && mode === 'result') askRating(c); }, 1200);
     }
     ui.showBar(buttons);
+  }
+
+  // ---- stars and comments on shared levels ----
+  function askRating(c) {
+    ui.showRate(`${c.spec.name || 'This level'} by ${c.spec.author || 'someone'}`, shared.myRating(c.code) ?? { name: shared.author() });
+    ui.on.rateSend = async (r) => {
+      ui.rateMessage('Sending…');
+      try {
+        const said = await shared.rate(c.code, r);
+        if (r.name && !shared.author()) shared.setAuthor(r.name);
+        ui.close();
+        if (custom === c && mode === 'result') customResult(true);
+        ui.toast(said === 'pending' ? 'Thanks! Your comment will show once it’s checked.' : 'Thanks for the stars!');
+      } catch (err) { ui.rateMessage(err.message); }
+    };
+  }
+
+  async function showSaid(c) {
+    const title = `${c.spec.name || 'This level'} by ${c.spec.author || 'someone'}`;
+    ui.showSaid(title, [], 'Loading…');
+    try { ui.showSaid(title, await shared.comments(c.code)); } catch (err) { ui.showSaid(title, [], err.message); }
   }
 
   // rewind: play the game again from the start, up to 5 seconds ago
   ui.on.rewind = () => {
     ui.close();
-    if (!custom?.rec || custom.player) { paused = false; return; }
+    if (!custom?.rec || !canRewind()) { paused = false; return; }
     const t = Math.max(0, g.iteration - 5 * 17);
     const assist = { ...g.assist };
     g = replayTo(spec, custom.rec.log, t, assist);
@@ -244,7 +277,7 @@ function main() {
     ui.showShared([], new Set(), 'Loading…');
     try {
       const list = await shared.sharedList();
-      ui.showShared(list.map((l) => ({ ...l, picture: shared.previewUrl(l.id) })), shared.sharedDone());
+      ui.showShared(list.map((l) => ({ ...l, stats: { attempts: 0, wins: 0, stars: null, ratings: 0, comments: 0, ...l.stats }, picture: shared.previewUrl(l.id) })), shared.sharedDone(), undefined, shared.sortOrder());
     } catch (err) { ui.showShared([], new Set(), err.message); }
   }
 
@@ -254,10 +287,11 @@ function main() {
       const rec = await shared.sharedLevel(code, t);
       const { level } = buildCustom(rec.spec, dos);
       ui.close();
-      playCustom({ kind, spec: rec.spec, level, code });
+      playCustom({ kind, spec: rec.spec, level, code, stats: rec.stats });
     } catch (err) { ui.showShared([], new Set(), err.message); }
   }
   ui.on.pickShared = (code) => openSharedLevel(code);
+  ui.on.sort = (s) => shared.setSortOrder(s);
 
   // ---- the menus ----
   ui.on.option = setOption;

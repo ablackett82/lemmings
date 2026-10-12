@@ -1,6 +1,7 @@
 // The shared level store: anyone can publish a level, it waits for approval,
 // and only approved levels are listed. A Cloudflare Worker with one KV
-// namespace (LEVELS).
+// namespace (LEVELS) for the levels, and a D1 database (STATS, schema.sql) for
+// how often each is played and won, and its star ratings and comments.
 //
 // Keys in LEVELS:
 //   level:<id>      { id, name, author, status, created, decided, level }
@@ -8,6 +9,9 @@
 //   index:approved  [{ id, name, author, created }], newest first
 //   rate:<ip>:<hr>  submissions from one address this hour
 //   rate:day:<day>  submissions from everyone today
+//
+// STATS: plays (level, attempts, wins), ratings (one per level per device:
+// stars, name, comment; a comment shows once approved, like a level).
 //
 // The game talks to /api/...; the approver uses /review/... from the button in
 // the Telegram message. Each review link carries a token for that one level
@@ -20,6 +24,7 @@ const MAX_LEVEL = 100_000;     // characters of level data
 const MAX_PREVIEW = 300_000;   // bytes of PNG
 const PER_HOUR = 5;            // submissions per address per hour
 const PER_DAY = 40;            // submissions from everyone per day
+const COMMENTS_PER_HOUR = 10;  // comments per address per hour
 const ORIGINS = ['https://ablackett82.github.io'];
 const GAME = 'https://ablackett82.github.io/arcade/games/lemmings/';
 const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/; // testing on this computer
@@ -36,14 +41,21 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     try {
       let m;
-      if (path === '/api/levels' && req.method === 'GET') return json(await approvedIndex(env), cors);
+      if (path === '/api/levels' && req.method === 'GET') return json(await listing(env), cors);
       if (path === '/api/levels' && req.method === 'POST') return json(...withCors(await submit(req, env, url), cors));
       if ((m = path.match(/^\/api\/levels\/([A-Z]+-\d{3})\/preview\.png$/))) return preview(env, m[1]);
       if ((m = path.match(/^\/api\/levels\/([A-Z]+-\d{3})$/)) && req.method === 'GET') return json(...withCors(await getLevel(env, m[1], url), cors));
+      if ((m = path.match(/^\/api\/levels\/([A-Z]+-\d{3})\/play$/)) && req.method === 'POST') return json(...withCors(await play(req, env, m[1]), cors));
+      if ((m = path.match(/^\/api\/levels\/([A-Z]+-\d{3})\/rating$/)) && req.method === 'POST') return json(...withCors(await rate(req, env, m[1], url), cors));
+      if ((m = path.match(/^\/api\/levels\/([A-Z]+-\d{3})\/comments$/)) && req.method === 'GET') return json(...withCors(await comments(env, m[1]), cors));
       if (path === '/review' && req.method === 'GET') return reviewList(env, url);
       if ((m = path.match(/^\/review\/([A-Z]+-\d{3})$/))) {
         if (req.method === 'GET') return reviewPage(env, m[1], url);
         if (req.method === 'POST') return decide(req, env, m[1], url);
+      }
+      if ((m = path.match(/^\/review\/comment\/(\d+)$/))) {
+        if (req.method === 'GET') return commentPage(env, m[1], url);
+        if (req.method === 'POST') return decideComment(req, env, m[1], url);
       }
       if (path === '/') return new Response('Lemmings levels', { headers: { 'content-type': 'text/plain' } });
       return json({ error: 'not found' }, cors, 404);
@@ -86,8 +98,70 @@ async function submit(req, env, url) {
 async function getLevel(env, id, url) {
   const rec = await env.LEVELS.get(`level:${id}`, 'json');
   if (!rec) return [{ error: 'no such level' }, 404];
-  if (rec.status === 'approved' || await validToken(env, id, url.searchParams.get('t'))) return [rec, 200];
-  return [{ id, status: rec.status }, 200];   // the maker can see how it's getting on
+  const stats = (await statsFor(env, [id]))[id];
+  if (rec.status === 'approved' || await validToken(env, id, url.searchParams.get('t'))) return [{ ...rec, stats }, 200];
+  return [{ id, status: rec.status, stats }, 200];   // the maker can see how it's getting on
+}
+
+// a go at a level ({ won: false }, as it starts) or a win ({ won: true })
+async function play(req, env, id) {
+  let body;
+  try { body = await req.json(); } catch { return [{ error: 'bad request' }, 400]; }
+  if (!await isApproved(env, id)) return [{ error: 'no such level' }, 404];
+  if (body.won === true) {
+    await env.STATS.prepare('UPDATE plays SET wins = MIN(wins + 1, attempts) WHERE level = ?').bind(id).run();
+  } else {
+    await env.STATS.prepare('INSERT INTO plays (level, attempts) VALUES (?, 1) ON CONFLICT (level) DO UPDATE SET attempts = attempts + 1').bind(id).run();
+  }
+  return [{ ok: true }, 200];
+}
+
+// stars (1-5), and maybe a name and a comment, from one device (a random id it keeps)
+async function rate(req, env, id, url) {
+  let body;
+  try { body = await req.json(); } catch { return [{ error: 'bad request' }, 400]; }
+  const stars = Math.round(+body.stars), device = clean(body.device, 40);
+  if (!(stars >= 1 && stars <= 5) || device.length < 8) return [{ error: 'bad rating' }, 400];
+  const name = clean(body.name, 24), comment = clean(body.comment, 300);
+  const rec = await env.LEVELS.get(`level:${id}`, 'json');
+  if (rec?.status !== 'approved') return [{ error: 'no such level' }, 404];
+  const old = await env.STATS.prepare('SELECT comment, status FROM ratings WHERE level = ? AND device = ?').bind(id, device).first();
+  const sameComment = old && old.comment === comment;
+  if (comment && !sameComment) {
+    const ip = req.headers.get('cf-connecting-ip') || 'unknown';
+    const key = `rate:c:${ip}:${Math.floor(Date.now() / 3_600_000)}`;
+    const n = +await env.LEVELS.get(key);
+    if (n >= COMMENTS_PER_HOUR) return [{ error: 'too many comments, try later' }, 429];
+    await env.LEVELS.put(key, String(n + 1), { expirationTtl: 3700 });
+  }
+  const status = !comment ? 'none' : sameComment ? old.status : 'pending';
+  const row = await env.STATS.prepare(`INSERT INTO ratings (level, device, stars, name, comment, status, created) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (level, device) DO UPDATE SET stars = excluded.stars, name = excluded.name, comment = excluded.comment, status = excluded.status, created = excluded.created
+    RETURNING id`).bind(id, device, stars, name, comment, status, Date.now()).first();
+  if (status === 'pending' && !sameComment) await notifyComment(env, url.origin, rec, { id: row.id, stars, name, comment });
+  return [{ ok: true, comment: status }, 200];
+}
+
+async function comments(env, id) {
+  const { results } = await env.STATS.prepare(`SELECT stars, name, comment, created FROM ratings WHERE level = ? AND status = 'approved' ORDER BY created DESC LIMIT 50`).bind(id).all();
+  return [results, 200];
+}
+
+/** { id: { attempts, wins, stars (average, or null), ratings, comments (shown) } } for the levels. */
+async function statsFor(env, ids) {
+  const out = Object.fromEntries(ids.map((id) => [id, { attempts: 0, wins: 0, stars: null, ratings: 0, comments: 0 }]));
+  if (!ids.length || !env.STATS) return out;
+  const [plays, stars] = await env.STATS.batch([
+    env.STATS.prepare('SELECT level, attempts, wins FROM plays'),
+    env.STATS.prepare(`SELECT level, AVG(stars) AS stars, COUNT(*) AS n, SUM(status = 'approved') AS said FROM ratings GROUP BY level`),
+  ]);
+  for (const r of plays.results) if (out[r.level]) Object.assign(out[r.level], { attempts: r.attempts, wins: r.wins });
+  for (const r of stars.results) if (out[r.level]) Object.assign(out[r.level], { stars: Math.round(r.stars * 10) / 10, ratings: r.n, comments: r.said });
+  return out;
+}
+
+async function isApproved(env, id) {
+  return (await approvedIndex(env)).some((e) => e.id === id);
 }
 
 async function preview(env, id) {
@@ -98,6 +172,13 @@ async function preview(env, id) {
 
 async function approvedIndex(env) {
   return (await env.LEVELS.get('index:approved', 'json')) ?? [];
+}
+
+// the list for Our levels, each with its stats
+async function listing(env) {
+  const index = await approvedIndex(env);
+  const stats = await statsFor(env, index.map((e) => e.id));
+  return index.map((e) => ({ ...e, stats: stats[e.id] }));
 }
 
 // ---- the approver's side ----
@@ -117,7 +198,11 @@ async function reviewList(env, url) {
   rows.sort((a, b) => b.created - a.created);
   const items = await Promise.all(rows.map(async r =>
     `<li><a href="/review/${r.id}?t=${await token(env, r.id)}">${esc(r.name)}</a> by ${esc(r.author)} <small>${when(r.created)}</small></li>`));
-  return html(`<h1>Waiting for approval</h1>${items.length ? `<ul>${items.join('')}</ul>` : '<p>Nothing waiting.</p>'}`);
+  const { results: waiting } = await env.STATS.prepare(`SELECT id, level, name, comment FROM ratings WHERE status = 'pending' ORDER BY created DESC`).all();
+  const cs = await Promise.all(waiting.map(async c =>
+    `<li><a href="/review/comment/${c.id}?t=${await token(env, `c${c.id}`)}">${esc(c.comment.slice(0, 60))}</a> on ${c.level}${c.name ? ` by ${esc(c.name)}` : ''}</li>`));
+  return html(`<h1>Waiting for approval</h1>${items.length ? `<ul>${items.join('')}</ul>` : '<p>No levels waiting.</p>'}
+    <h2>Comments</h2>${cs.length ? `<ul>${cs.join('')}</ul>` : '<p>No comments waiting.</p>'}`);
 }
 
 async function reviewPage(env, id, url) {
@@ -156,6 +241,49 @@ async function decide(req, env, id, url) {
   if (rec.status === 'approved') index.unshift({ id, name: rec.name, author: rec.author, created: rec.created });
   await env.LEVELS.put('index:approved', JSON.stringify(index));
   return Response.redirect(`${url.origin}/review/${id}?t=${t}`, 303);
+}
+
+async function commentPage(env, n, url) {
+  const t = url.searchParams.get('t');
+  if (!await validToken(env, `c${n}`, t)) return html('<p>This link isn’t right.</p>', 403);
+  const c = await env.STATS.prepare('SELECT * FROM ratings WHERE id = ?').bind(+n).first();
+  if (!c) return html('<p>That comment has gone (changed or replaced).</p>', 404);
+  const rec = await env.LEVELS.get(`level:${c.level}`, 'json');
+  const status = { pending: 'Waiting for you', approved: 'Approved ✓', rejected: 'Rejected', none: 'No comment' }[c.status];
+  return html(`
+    <h1>A comment on ${esc(rec?.name ?? c.level)}</h1>
+    <p>${'★'.repeat(c.stars)}${'☆'.repeat(5 - c.stars)} from <b>${esc(c.name || 'someone')}</b> · ${when(c.created)}</p>
+    <blockquote>${esc(c.comment)}</blockquote>
+    <p class="status ${c.status}">${status}</p>
+    <form method="post" action="/review/comment/${n}?t=${t}">
+      <button name="action" value="approve" class="yes">Show it</button>
+      <button name="action" value="reject" class="no">Hide it</button>
+    </form>
+    <p><small>Hiding it keeps the stars, just not the words.</small></p>`);
+}
+
+async function decideComment(req, env, n, url) {
+  const t = url.searchParams.get('t');
+  if (!await validToken(env, `c${n}`, t)) return html('<p>This link isn’t right.</p>', 403);
+  const action = (await req.formData()).get('action');
+  if (action !== 'approve' && action !== 'reject') return html('<p>Pick one.</p>', 400);
+  await env.STATS.prepare(`UPDATE ratings SET status = ? WHERE id = ? AND status != 'none'`).bind(action === 'approve' ? 'approved' : 'rejected', +n).run();
+  return Response.redirect(`${url.origin}/review/comment/${n}?t=${t}`, 303);
+}
+
+// A Telegram message about a comment, with a button to its page
+async function notifyComment(env, origin, rec, c) {
+  if (!env.TELEGRAM_TOKEN || !env.TELEGRAM_CHAT) return;
+  const t = await token(env, `c${c.id}`);
+  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendMessage`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: env.TELEGRAM_CHAT,
+      text: `Comment on ${rec.name} (${rec.id})\n${'★'.repeat(c.stars)} from ${c.name || 'someone'}:\n“${c.comment}”`,
+      reply_markup: { inline_keyboard: [[{ text: 'Show or hide', url: `${origin}/review/comment/${c.id}?t=${t}` }]] },
+    }),
+  }).then(async r => { if (!r.ok) console.log('telegram', r.status, await r.text()); })
+    .catch(e => console.log('telegram failed', String(e)));
 }
 
 // A Telegram message from the bot: the level's picture, and a button that
@@ -252,6 +380,7 @@ function html(body, status = 200) {
   .status { font-weight: bold; } .approved { color: #6d6; } .rejected { color: #e66; }
   form { display: flex; gap: 12px; } button { flex: 1; font-size: 20px; padding: 16px; border: 0; border-radius: 10px; color: #fff; }
   .yes { background: #2a8a3a; } .no { background: #a33; }
+  blockquote { font-size: 20px; margin: 12px 0; padding: 12px; border-left: 4px solid #8cf; background: #222; }
   .play { display: block; text-align: center; padding: 14px; border: 2px solid #8cf; border-radius: 10px; text-decoration: none; font-weight: bold; }
 </style></head><body>${body}</body></html>`, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
 }

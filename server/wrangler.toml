@@ -6,3 +6,9 @@ compatibility_date = "2026-09-01"
 [[kv_namespaces]]
 binding = "LEVELS"
 id = "c6e5680f61b44b25b76e022719094cb8"
+
+# plays, wins and ratings (schema.sql)
+[[d1_databases]]
+binding = "STATS"
+database_name = "lemmings-stats"
+database_id = "d74a854a-6694-458a-9f6c-b53a93c9a7b3"

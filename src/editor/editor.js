@@ -152,6 +152,7 @@ export class Editor {
       return `<div class="ed-card" data-id="${e.id}">
         <canvas width="320" height="32"></canvas>
         <div class="ed-card-t"><b>${esc(e.spec.name || 'Untitled')}</b><span class="ed-badge ${badge[1]}">${esc(badge[0])}</span></div>
+        <div class="ed-card-s" hidden></div>
         <div class="ed-card-b">
           <button type="button" data-act="edit" class="main">Edit</button>
           <button type="button" data-act="share" ${proved && !(pub && pub.status !== 'gone' && pub.status !== 'rejected') ? '' : 'disabled'}>Share</button>
@@ -165,16 +166,22 @@ export class Editor {
       card.querySelector('canvas').addEventListener('click', () => this.edit(e.id));
       for (const b of card.querySelectorAll('[data-act]')) b.addEventListener('click', () => this.cardAction(b.dataset.act, e));
     }
-    // how the shared ones are getting on
+    // how the shared ones are getting on: approved yet? how many have played them?
     for (const e of list) {
-      if (!e.pub || e.pub.status !== 'pending') continue;
-      store.status(e.pub.code).then((s) => {
-        if (!s || s === e.pub.status) return;
-        const cur = store.getMine(e.id);
-        if (!cur?.pub) return;
-        cur.pub.status = s;
-        store.saveMine(cur);
-        if (this.open && !this.homeEl.hidden) this.listMine();
+      if (!e.pub || (e.pub.status !== 'pending' && e.pub.status !== 'approved')) continue;
+      store.status(e.pub.code).then((r) => {
+        if (!r) return;
+        if (r.status !== e.pub.status) {
+          const cur = store.getMine(e.id);
+          if (!cur?.pub) return;
+          cur.pub.status = r.status;
+          store.saveMine(cur);
+          if (this.open && !this.homeEl.hidden) this.listMine();
+          return;
+        }
+        const line = r.status === 'approved' && store.statsLine(r.stats);
+        const el2 = el.querySelector(`.ed-card[data-id="${e.id}"] .ed-card-s`);
+        if (line && el2) { el2.textContent = line; el2.hidden = false; }
       });
     }
   }

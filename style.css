@@ -159,6 +159,7 @@ html, body {
 #editor .ed-card canvas { width: 100%; aspect-ratio: 10 / 1; background: #000; border-radius: 4px; cursor: pointer; }
 #editor .ed-card-t { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 #editor .ed-card-t b { font-size: 16px; }
+#editor .ed-card-s { font-size: 13px; color: #ffd060; }
 #editor .ed-card-b { display: flex; gap: 6px; flex-wrap: wrap; }
 #editor .ed-badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: #2a2c3c; color: #aab; }
 #editor .ed-badge.ok { background: #1f4a26; color: #9ff0a8; }
@@ -231,3 +232,26 @@ html, body {
 #ui .ui-shared-list .c { color: var(--green); font-size: 13px; }
 /* in the arcade, its ⌂ button sits top left: keep the editor's buttons clear of it */
 body:has(#arcade-home) #editor .ed-bar { padding-left: calc(var(--sat-l) + 76px); }
+#ui .ui-shared-list .s { color: #ffd060; font-size: 13px; }
+#ui .ui-sort { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+#ui .ui-sort select { font: inherit; font-size: 16px; padding: 6px 8px; border-radius: 8px; }
+/* the rating card, and what people said */
+#ui .ui-rate, #ui .ui-said { width: min(520px, 94vw); }
+#ui .ui-stars { display: flex; gap: 6px; justify-content: center; }
+#ui .ui-stars button { font-size: 40px; line-height: 1; padding: 6px 10px; color: #555; background: #111; }
+#ui .ui-stars button.on { color: #ffd060; }
+#ui .ui-field { display: flex; flex-direction: column; gap: 4px; text-transform: none; }
+#ui .ui-field input, #ui .ui-field textarea { font: inherit; font-size: 17px; padding: 8px 10px; border-radius: 8px; border: 1px solid #44475e; background: #0c0c12; color: #fff; resize: vertical; }
+#ui .ui-said-list { display: flex; flex-direction: column; gap: 10px; max-height: 50vh; overflow: auto; }
+#ui .ui-said-one { background: #111; border-radius: 8px; padding: 8px 10px; }
+#ui .ui-said-one .st { color: #ffd060; }
+#ui .ui-said-one p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+#ui .ui-sort[hidden] { display: none; }
+#ui .ui-sort select { flex: none; margin-left: 0; max-width: none; }
+#ui .ui-field { align-items: stretch; }
+#ui .ui-rate-send:not(:disabled) { background: var(--green); color: #000; }
+#ui .ui-rate-send:disabled { opacity: 0.4; }
+#ui .ui-toast { position: fixed; left: 50%; top: 20%; transform: translateX(-50%); background: #000d; border: 2px solid var(--green); color: #fff; padding: 10px 16px; border-radius: 10px; max-width: 90vw; text-align: center; pointer-events: none; z-index: 5; }
+#ui .ui-toast[hidden] { display: none; }
+#ui .ui-said-one, #ui .ui-field input, #ui .ui-field textarea { text-transform: none; }
+#ui .ui-field { width: 100%; align-self: stretch; text-align: left; }

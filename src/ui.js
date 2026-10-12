@@ -3,6 +3,17 @@
 // the buttons on the screens between levels, and the clear buttons over the
 // skill panel.
 import { HD_DEFS, HD_LABELS, hdIcon } from './render/hdicons.js';
+import { statsLine } from './editor/store.js';
+
+// Our levels' orders: [value, label, compare]
+const rate = (s) => (s.attempts ? s.wins / s.attempts : null);
+const SORTS = [
+  ['new', 'Newest', (a, b) => b.created - a.created],
+  ['name', 'Name', (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })],
+  ['stars', 'Most stars', (a, b) => (b.stats.stars ?? 0) - (a.stats.stars ?? 0) || b.stats.ratings - a.stats.ratings],
+  ['easy', 'Most won', (a, b) => (rate(b.stats) ?? -1) - (rate(a.stats) ?? -1)],
+  ['hard', 'Least won', (a, b) => (rate(a.stats) ?? 2) - (rate(b.stats) ?? 2)],
+];
 
 export const CHEAT_LIST = [
   ['unlimitedSkills', 'Unlimited skills'],
@@ -63,12 +74,33 @@ export class UI {
       <div class="ui-panel ui-shared" hidden>
         <h2>Our levels</h2>
         <p class="ui-note ui-shared-status"></p>
+        <label class="ui-sort">Sort by <select>${SORTS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>
         <div class="ui-shared-list"></div>
         <button class="ui-close" type="button">Back</button>
       </div>
-      <div class="ui-bar" hidden></div>`;
+      <div class="ui-panel ui-rate" hidden>
+        <h2>Did you like it?</h2>
+        <p class="ui-note ui-rate-title"></p>
+        <div class="ui-stars">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-star="${n}" aria-label="${n} star${n > 1 ? 's' : ''}">★</button>`).join('')}</div>
+        <label class="ui-field">Your name (if you like) <input class="ui-rate-name" maxlength="24" autocomplete="off"></label>
+        <label class="ui-field">Say something about it (if you like) <textarea class="ui-rate-comment" maxlength="300" rows="3"></textarea></label>
+        <p class="ui-note">Comments show for everyone once they’ve been checked.</p>
+        <p class="ui-note ui-rate-msg"></p>
+        <div class="ui-row">
+          <button class="ui-rate-send main" type="button" disabled>Send</button>
+          <button class="ui-rate-skip" type="button">Not now</button>
+        </div>
+      </div>
+      <div class="ui-panel ui-said" hidden>
+        <h2>What people said</h2>
+        <p class="ui-note ui-said-title"></p>
+        <div class="ui-said-list"></div>
+        <button class="ui-close" type="button">Back</button>
+      </div>
+      <div class="ui-bar" hidden></div>
+      <div class="ui-toast" hidden></div>`;
     this.q = (s) => el.querySelector(s);
-    this.panels = { menu: this.q('.ui-menu'), settings: this.q('.ui-settings'), levels: this.q('.ui-levels'), shared: this.q('.ui-shared') };
+    this.panels = { menu: this.q('.ui-menu'), settings: this.q('.ui-settings'), levels: this.q('.ui-levels'), shared: this.q('.ui-shared'), rate: this.q('.ui-rate'), said: this.q('.ui-said') };
     this.bar = this.q('.ui-bar');
     this.hd = this.q('.ui-hd'); this.hdKeys = [];
     // hooks for main.js
@@ -90,6 +122,15 @@ export class UI {
     this.q('.ui-dos-load').addEventListener('click', () => pick.click());
     pick.addEventListener('change', () => { if (pick.files.length) this.on.loadFiles?.([...pick.files]); pick.value = ''; });
     this.q('.ui-dos-forget').addEventListener('click', () => this.on.forgetFiles?.());
+    // Our levels' order
+    this.q('.ui-sort select').addEventListener('change', (e) => { this.on.sort?.(e.target.value); this.listShared(); });
+    // the rating card
+    this.stars = 0;
+    for (const b of el.querySelectorAll('[data-star]')) b.addEventListener('click', () => this.setStars(+b.dataset.star));
+    this.q('.ui-rate-send').addEventListener('click', () => {
+      this.on.rateSend?.({ stars: this.stars, name: this.q('.ui-rate-name').value.trim(), comment: this.q('.ui-rate-comment').value.trim() });
+    });
+    this.q('.ui-rate-skip').addEventListener('click', () => { this.close(); this.on.rateSkip?.(); });
     // keep taps on the menus off the game
     for (const ev of ['pointerdown', 'pointerup', 'pointermove']) {
       for (const n of [this.q('.ui-gear'), this.q('.ui-menu-btn'), ...Object.values(this.panels), this.bar]) n.addEventListener(ev, (e) => e.stopPropagation());
@@ -158,23 +199,70 @@ export class UI {
     this.q('.ui-title').textContent = quit ?? 'Quit to title';
   }
 
-  /** Our levels: items [{ id, name, author, picture }], done (Set of ids), or a message instead. */
-  showShared(items, done, message) {
-    const list = this.q('.ui-shared-list');
+  /**
+   * Our levels: items [{ id, name, author, created, picture, stats }], done (Set of ids),
+   * or a message instead; sort: the order to show them in (see SORTS).
+   */
+  showShared(items, done, message, sort) {
+    this.shared = { items: items ?? [], done };
+    if (sort) this.q('.ui-sort select').value = sort;
+    this.q('.ui-sort').hidden = !this.shared.items.length;
     this.q('.ui-shared-status').textContent = message ?? (items.length ? 'Levels made by people who play this. Tap one to play it.' : 'No levels shared yet. Make one in Make levels!');
+    this.listShared();
+    this.open('shared');
+  }
+
+  listShared() {
+    const list = this.q('.ui-shared-list');
+    const { items, done } = this.shared ?? { items: [], done: new Set() };
+    const by = SORTS.find(([v]) => v === this.q('.ui-sort select').value) ?? SORTS[0];
     list.innerHTML = '';
-    for (const it of items ?? []) {
+    for (const it of items.slice().sort((a, b) => by[2](a, b) || b.created - a.created)) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.innerHTML = `<img alt="" loading="lazy"><span class="t"></span><span class="a"></span><span class="c"></span>`;
+      b.innerHTML = `<img alt="" loading="lazy"><span class="t"></span><span class="a"></span><span class="s"></span><span class="c"></span>`;
       b.querySelector('img').src = it.picture;
       b.querySelector('.t').textContent = it.name;
       b.querySelector('.a').textContent = `by ${it.author} · ${it.id}`;
+      b.querySelector('.s').textContent = statsLine(it.stats);
       b.querySelector('.c').textContent = done.has(it.id) ? '✓ Done' : '';
       b.addEventListener('click', () => this.on.pickShared?.(it.id));
       list.appendChild(b);
     }
-    this.open('shared');
+  }
+
+  /** The rating card after winning a shared level: title, and what this device said last time (or {}). */
+  showRate(title, { stars = 0, name = '', comment = '' } = {}) {
+    this.q('.ui-rate-title').textContent = title;
+    this.q('.ui-rate-name').value = name;
+    this.q('.ui-rate-comment').value = comment;
+    this.rateMessage('');
+    this.setStars(stars);
+    this.open('rate');
+  }
+  setStars(n) {
+    this.stars = n;
+    for (const b of this.el.querySelectorAll('[data-star]')) b.classList.toggle('on', +b.dataset.star <= n);
+    this.q('.ui-rate-send').disabled = !n;
+  }
+  rateMessage(msg) { this.q('.ui-rate-msg').textContent = msg; }
+
+  /** What people said about a level: list [{ stars, name, comment }], or a message instead. */
+  showSaid(title, list, message) {
+    this.q('.ui-said-title').textContent = title;
+    const el = this.q('.ui-said-list');
+    el.innerHTML = '';
+    if (message || !list?.length) el.innerHTML = `<p class="ui-note"></p>`, el.firstChild.textContent = message ?? 'Nobody’s said anything yet.';
+    for (const c of list ?? []) {
+      const d = document.createElement('div');
+      d.className = 'ui-said-one';
+      d.innerHTML = '<span class="st"></span> <b></b><p></p>';
+      d.querySelector('.st').textContent = '★'.repeat(c.stars) + '☆'.repeat(5 - c.stars);
+      d.querySelector('b').textContent = c.name || 'Someone';
+      d.querySelector('p').textContent = c.comment;
+      el.appendChild(d);
+    }
+    this.open('said');
   }
 
   /** Where the panel's buttons are on the page (CSS px): the clear buttons go over them. */
@@ -203,6 +291,14 @@ export class UI {
       cell.children[0].textContent = b.count ?? '';
       if (prev !== b.name) { cell.children[1].innerHTML = hdIcon(b.name); cell.children[2].textContent = HD_LABELS[b.name]; }
     });
+  }
+
+  /** A message for a few seconds. */
+  toast(msg) {
+    const t = this.q('.ui-toast');
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => { t.hidden = true; }, 3500);
   }
 
   /** Buttons along the bottom (between levels). buttons: [[label, fn, main?]] */
