@@ -255,3 +255,9 @@ body:has(#arcade-home) #editor .ed-bar { padding-left: calc(var(--sat-l) + 76px)
 #ui .ui-toast[hidden] { display: none; }
 #ui .ui-said-one, #ui .ui-field input, #ui .ui-field textarea { text-transform: none; }
 #ui .ui-field { width: 100%; align-self: stretch; text-align: left; }
+/* levels you've done: a big tick */
+#ui .ui-shared-list .pic { position: relative; display: block; }
+#ui .ui-shared-list .pic img { display: block; }
+#ui .ui-shared-list .tick { position: absolute; right: -4px; top: -10px; width: 36px; height: 36px; border-radius: 50%; background: var(--green); color: #000; font-size: 24px; font-weight: bold; line-height: 36px; text-align: center; box-shadow: 0 0 0 3px #000; }
+#ui .ui-shared-list button.done { border-color: var(--green); background: #0f2a14; }
+#ui .ui-shared-list .c { font-weight: bold; }

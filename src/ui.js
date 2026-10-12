@@ -9,6 +9,8 @@ import { statsLine } from './editor/store.js';
 const rate = (s) => (s.attempts ? s.wins / s.attempts : null);
 const SORTS = [
   ['new', 'Newest', (a, b) => b.created - a.created],
+  ['todo', 'Not done yet first', (a, b, done) => done.has(a.id) - done.has(b.id)],
+  ['done', 'Done first', (a, b, done) => done.has(b.id) - done.has(a.id)],
   ['name', 'Name', (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })],
   ['stars', 'Most stars', (a, b) => (b.stats.stars ?? 0) - (a.stats.stars ?? 0) || b.stats.ratings - a.stats.ratings],
   ['easy', 'Most won', (a, b) => (rate(b.stats) ?? -1) - (rate(a.stats) ?? -1)],
@@ -217,15 +219,16 @@ export class UI {
     const { items, done } = this.shared ?? { items: [], done: new Set() };
     const by = SORTS.find(([v]) => v === this.q('.ui-sort select').value) ?? SORTS[0];
     list.innerHTML = '';
-    for (const it of items.slice().sort((a, b) => by[2](a, b) || b.created - a.created)) {
+    for (const it of items.slice().sort((a, b) => by[2](a, b, done) || b.created - a.created)) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.innerHTML = `<img alt="" loading="lazy"><span class="t"></span><span class="a"></span><span class="s"></span><span class="c"></span>`;
+      b.innerHTML = `<span class="pic"><img alt="" loading="lazy"></span><span class="t"></span><span class="a"></span><span class="s"></span><span class="c"></span>`;
+      if (done.has(it.id)) { b.classList.add('done'); b.querySelector('.pic').insertAdjacentHTML('beforeend', '<span class="tick" aria-label="Done">✓</span>'); }
       b.querySelector('img').src = it.picture;
       b.querySelector('.t').textContent = it.name;
       b.querySelector('.a').textContent = `by ${it.author} · ${it.id}`;
       b.querySelector('.s').textContent = statsLine(it.stats);
-      b.querySelector('.c').textContent = done.has(it.id) ? '✓ Done' : '';
+      b.querySelector('.c').textContent = done.has(it.id) ? '✓ You’ve done this one' : '';
       b.addEventListener('click', () => this.on.pickShared?.(it.id));
       list.appendChild(b);
     }
