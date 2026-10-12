@@ -208,11 +208,11 @@ function main() {
     return !!c.spec.proof && (c.kind !== 'shared' || shared.sharedDone().has(c.code));
   }
 
-  function leaveCustom(win = null) {
+  function leaveCustom(win = null, shareNow = false) {
     const c = custom;
     music.stop();
     ui.close();
-    if (c?.kind === 'editor') { mode = 'editor'; g = null; ui.showBar([]); ui.setPlaying(false); editor.back(win); return; }
+    if (c?.kind === 'editor') { mode = 'editor'; g = null; ui.showBar([]); ui.setPlaying(false); editor.back(win, shareNow); return; }
     if (c?.kind === 'shared') { toTitle(); openShared(); return; }
     toTitle();
   }
@@ -224,7 +224,9 @@ function main() {
     if (fair && c.kind === 'shared') { shared.markSharedDone(c.code); shared.recordPlay(c.code, true); }
     const buttons = [];
     if (c.kind === 'editor') {
-      buttons.push(['Back to editor', () => leaveCustom(fair ? c.rec.log : null), true], [passed ? 'Play again' : 'Try again', () => startLevel()]);
+      if (fair) buttons.push(['Share now?', () => leaveCustom(c.rec.log, true), true], ['Return to editing (you’ll have to play it through again if you change anything)', () => leaveCustom(c.rec.log)]);
+      else buttons.push(['Back to editor', () => leaveCustom(null), true]);
+      buttons.push([passed ? 'Play again' : 'Try again', () => startLevel()]);
     } else {
       buttons.push([passed ? 'Play again' : 'Try again', () => startLevel(), !passed]);
       if (canWatch(c) && !watched) buttons.push(['Watch how', () => startLevel(true)]);
@@ -554,7 +556,7 @@ function main() {
     wrap(msg, 44).forEach((s, i) => screen.centred(100 + i * 11, s, [200, 200, 220]));
     if (custom?.player) screen.centred(150, 'THAT WAS HOW ITS MAKER DID IT', [170, 170, 190]);
     else if (cheated && passed) screen.centred(150, custom?.kind === 'editor' ? 'CHEATS WERE ON: BEAT IT WITHOUT THEM TO SHARE IT' : 'CHEATS WERE ON, SO NO TICK THIS TIME', [255, 110, 110]);
-    else if (custom?.kind === 'editor' && passed) screen.centred(150, 'BEATEN! NOW YOU CAN SHARE IT', YELLOW);
+    else if (custom?.kind === 'editor' && passed) screen.centred(150, 'BEATEN! SHARE IT NOW, OR KEEP EDITING', YELLOW);
   }
 
   function wrap(s, n) {

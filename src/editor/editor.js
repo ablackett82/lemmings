@@ -242,16 +242,18 @@ export class Editor {
   }
 
   /** Back from test play. win: the log of a win with no cheats, or null. */
-  back(win) {
+  back(win, shareNow = false) {
     if (!this.entry) return this.home();
     this.root.hidden = false;
     if (win) {
       this.spec.proof = { log: win, key: playKey(this.spec) };
+      this.warnedEdit = false;
       this.save();
-      this.toast('Beaten! You can share this level now (‹ Levels → Share).');
+      if (!shareNow) this.toast('Beaten! You can share it from ‹ Levels → Share. Changing anything means beating it again.');
     }
     this.resize();
     this.draw();
+    if (win && shareNow) this.share(this.entry);
   }
 
   hide() { if (this.entry) this.save(); this.root.hidden = true; }
@@ -436,7 +438,7 @@ export class Editor {
     for (const e of an.ends) by[e.cause] = (by[e.cause] ?? 0) + 1;
     const parts = Object.entries(by).filter(([k]) => k !== 'home').map(([k, n]) => `${n} ${END_STYLE[k][1].toLowerCase()}`);
     const ok = an.home >= this.spec.save;
-    const proof = this.proved(this.spec) ? '<span class="ok">Beaten ✓</span>' : '<span>Not beaten yet</span>';
+    const proof = this.proved(this.spec) ? '<span class="ok">Beaten ✓ (any change means beating it again)</span>' : '<span>Not beaten yet</span>';
     this.statusEl.innerHTML = `<span class="${ok ? 'warn' : ''}">With no skills: ${an.home} of ${an.count} get home${parts.length ? `, ${parts.join(', ')}` : ''}${ok ? ' — too easy?' : ''}</span> · need ${this.spec.save} · ${proof}`;
   }
 
@@ -492,6 +494,12 @@ export class Editor {
   // ---- undo ---------------------------------------------------------------------
 
   snapshot() {
+    // first change to a beaten level: say it'll need beating again
+    if (this.proved(this.spec) && !this.warnedEdit) {
+      this.warnedEdit = true;
+      const { proof: _p, ...before } = this.spec;
+      this.offerUndo(JSON.stringify(before), this.undoStack.length);
+    }
     const { proof, ...rest } = this.spec;
     this.undoStack.push(JSON.stringify(rest));
     if (this.undoStack.length > 100) this.undoStack.shift();
@@ -925,6 +933,25 @@ export class Editor {
     this.modal.hidden = false;
     this.dialog.querySelector('.ed-no').addEventListener('click', () => this.closeModal());
     this.dialog.querySelector('.ed-yes').addEventListener('click', () => { this.closeModal(); fn(); });
+  }
+
+  /** After the first change to a beaten level: say it'll need beating again, with a button to put it back as it was. */
+  offerUndo(json, depth) {
+    let t = this.root.querySelector('.ed-undo-toast');
+    if (!t) {
+      t = document.createElement('div'); t.className = 'ed-undo-toast';
+      t.innerHTML = '<span>That change means you’ll have to beat the level again.</span> <button type="button" class="main">Undo</button>';
+      this.root.appendChild(t);
+    }
+    t.hidden = false;
+    t.querySelector('button').onclick = () => {
+      t.hidden = true;
+      this.undoStack.length = Math.min(depth, this.undoStack.length); this.redoStack = [];
+      this.restore(json);
+      this.toast('Put back. It’s still beaten ✓');
+    };
+    clearTimeout(this.undoToastTimer);
+    this.undoToastTimer = setTimeout(() => { t.hidden = true; }, 10000);
   }
 
   toast(text) {

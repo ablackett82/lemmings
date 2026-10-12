@@ -217,6 +217,11 @@ html, body {
 #editor .ed-skills { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
 #editor .ed-skill { display: flex; align-items: center; gap: 6px; }
 #editor .ed-skill > span:nth-child(2) { flex: 1; }
+#editor .ed-undo-toast {
+  position: absolute; left: 50%; bottom: calc(var(--sat-b) + 190px); transform: translateX(-50%); background: #000e; border: 1px solid var(--green);
+  padding: 10px 16px; border-radius: 10px; max-width: 90%; text-align: center; z-index: 5;
+}
+#editor .ed-undo-toast[hidden] { display: none; }
 #editor .ed-toast {
   position: absolute; left: 50%; bottom: calc(var(--sat-b) + 140px); transform: translateX(-50%); background: #000d; border: 1px solid var(--green);
   padding: 10px 16px; border-radius: 10px; max-width: 90%; text-align: center; pointer-events: none;
