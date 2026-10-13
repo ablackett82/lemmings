@@ -2,7 +2,7 @@
 //
 // { v: 1, name, author, set (0..4: Dirt, Fire, Marble, Pillar, Crystal),
 //   count, save, rate, time (minutes), skills: { climber: n, ... }, start,
-//   terrain: [item, ...] (drawn in order), objects: [{ id, x, y, fv?, behind? }],
+//   terrain: [item, ...] (drawn in order), objects: [{ id, x, y, fv?, behind?, g? }],
 //   proof?: a recorded win (replay.js) }
 //
 // Terrain items:
@@ -10,6 +10,9 @@
 //   { k: 'paint', r, pts: [[x, y], ...] }              the paint brush (the set's texture)
 //   { k: 'erase', r, pts }                             the rubber
 //   { k: 'stamp', s, x, y, dir, n? }                   a skill stamp (build.js)
+// Any terrain item or object may also have g: a group number. Items with the
+// same g are picked, moved, copied, flipped and deleted together in the
+// editor. It changes nothing about how the level plays.
 
 import { SKILLS, WORLD_W } from '../game/engine.js';
 
@@ -43,16 +46,19 @@ export function check(spec) {
   const pts = (a) => (Array.isArray(a) ? a.slice(0, 4000).map((p) => [int(p?.[0], -100, 1700), int(p?.[1], -100, 260)]) : []);
   for (const it of Array.isArray(spec.terrain) ? spec.terrain.slice(0, 3000) : []) {
     const flags = (o) => { for (const f of ['fv', 'fh', 'behind', 'erase']) if (it[f]) o[f] = true; return o; };
+    const before = out.terrain.length;
     if (it?.k === 'piece') out.terrain.push(flags({ k: 'piece', p: int(it.p, 0, 63), x: int(it.x, -300, 1900), y: int(it.y, -300, 460) }));
     else if (it?.k === 'paint' || it?.k === 'erase') out.terrain.push({ k: it.k, r: int(it.r, 1, 40), pts: pts(it.pts) });
     else if (it?.k === 'stamp' && ['build', 'bash', 'mine', 'dig', 'bomb'].includes(it.s)) {
       out.terrain.push({ k: 'stamp', s: it.s, x: int(it.x, 0, 1647), y: int(it.y, 0, 163), dir: it.dir < 0 ? -1 : 1, n: int(it.n, 1, 40, 1) });
     }
+    if (out.terrain.length > before && it.g) out.terrain.at(-1).g = int(it.g, 1, 9999);
   }
   for (const o of Array.isArray(spec.objects) ? spec.objects.slice(0, 32) : []) {
     const c = { id: int(o?.id, 0, 15), x: int(o?.x, -300, 1900), y: int(o?.y, -300, 460) };
     if (o.fv) c.fv = true;
     if (o.behind) c.behind = true;
+    if (o.g) c.g = int(o.g, 1, 9999);
     out.objects.push(c);
   }
   if (spec.proof && Array.isArray(spec.proof.log)) out.proof = { log: spec.proof.log.slice(0, 5000), key: String(spec.proof.key ?? '') };
@@ -62,7 +68,7 @@ export function check(spec) {
 /** A short fingerprint of the parts of a level that change how it plays: a proof only counts for these. */
 export function playKey(spec) {
   const { name, author, proof, ...rest } = spec;
-  const s = JSON.stringify(rest);
+  const s = JSON.stringify(rest, (k, v) => (k === 'g' ? undefined : v)); // grouping changes nothing about play
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
   return (h >>> 0).toString(36) + s.length.toString(36);

@@ -1,6 +1,6 @@
 // Service worker: caches the whole app on install so it launches offline.
 // Bump VERSION whenever any file changes, so clients pick up the new build.
-const VERSION = 'v14';
+const VERSION = 'v15';
 const CACHE = `lemmings-${VERSION}`;
 const FILES = [
   './', 'index.html', 'moved.js', 'style.css', 'manifest.webmanifest',

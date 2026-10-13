@@ -126,6 +126,13 @@ Crystal): its own terrain pieces and objects, so it looks like an original.
   what a player could make. Tap the top of a staircase for another.
 - **Things**: entrance, exit (its top comes with it), water, fire, traps,
   one-way walls, decorations.
+- **Select**: pick several things (tap to add or let go, or drag a box round
+  them; shift-tap with a mouse in any tool). They then move, copy, mirror,
+  flip, go to front or back, and delete together. Mirror and flip turn the
+  lot as a set about its middle. **Group** (ctrl/cmd + G) ties them together,
+  saved as a `g` number on each, so tapping one picks the whole group (shown
+  with blue boxes); **Ungroup** (shift + ctrl/cmd + G) lets them go. Grouping
+  doesn't change how a level plays, so it doesn't undo a beaten level.
 
 While editing, the level is played with no skills in the background
 (`analyse.js`): the **trails** show where the lemmings go, and a cross says

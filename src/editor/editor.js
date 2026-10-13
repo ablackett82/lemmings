@@ -10,6 +10,11 @@
 // pinch-zoom. Mouse: drag the background to pan, the wheel scrolls, ctrl or
 // cmd + wheel (or a trackpad pinch) zooms; arrow keys nudge, Delete deletes,
 // ctrl/cmd + Z undoes.
+//
+// Several things at once: the Select tool (tap things to add or remove them,
+// or drag a box round them), or shift-tap with the mouse. Moving, copying,
+// mirroring, flipping and deleting then work on all of them, and Group ties
+// them together (a `g` number on each, format.js) so tapping one picks the lot.
 
 import { WORLD_W, WORLD_H, SKILLS } from '../game/engine.js';
 import { hdIcon, HD_LABELS } from '../render/hdicons.js';
@@ -20,7 +25,7 @@ import { newLevel, playKey, LIMITS, check } from './format.js';
 import * as store from './store.js';
 
 const TOOLS = [
-  ['move', 'Move'], ['pieces', 'Pieces'], ['lumps', 'Lumps'], ['paint', 'Paint'], ['rubber', 'Rubber'], ['stamps', 'Stamps'], ['things', 'Things'],
+  ['move', 'Move'], ['select', 'Select'], ['pieces', 'Pieces'], ['lumps', 'Lumps'], ['paint', 'Paint'], ['rubber', 'Rubber'], ['stamps', 'Stamps'], ['things', 'Things'],
 ];
 const STAMP_LIST = [['build', 'builder', 'Stairs'], ['bash', 'basher', 'Bash'], ['mine', 'miner', 'Mine'], ['dig', 'digger', 'Dig'], ['bomb', 'bomber', 'Bomb']];
 const THING_NAMES = { entrance: 'Entrance', exit: 'Exit', water: 'Water', fire: 'Fire', trap: 'Trap', left: 'One way ←', right: 'One way →', deco: 'Decoration' };
@@ -40,7 +45,9 @@ export class Editor {
     this.hooks = hooks;
     this.entry = null;          // { id, spec, pub? } being edited
     this.tool = 'move';
-    this.sel = null;            // { t: 'terrain' | 'object', i }
+    this.sel = null;            // { t: 'terrain' | 'object', i }: the main one picked
+    this.more = [];             // the others picked with it, same shape
+    this.marquee = null;        // the box being dragged out in the Select tool
     this.opts = { piece: null, lump: 'mixed', paint: 8, rubber: 8, stamp: 'build', dir: 1, thing: null };
     this.cam = { z: 4, x: 0, y: 0 };
     this.show = { trails: true, falls: true };
@@ -225,7 +232,7 @@ export class Editor {
     if (!e || !this.dos) return;
     this.entry = { ...e, spec: check(e.spec) };
     this.undoStack = []; this.redoStack = [];
-    this.sel = null;
+    this.setAll([]);
     this.root.hidden = false;
     this.homeEl.hidden = true; this.mainEl.hidden = false;
     this.opts.piece = null; this.opts.thing = null;
@@ -415,11 +422,16 @@ export class Editor {
       }
     }
     // the selection
-    const box = this.selBox();
-    if (box) {
+    for (const { box, grouped } of this.selBoxes()) {
       const [x0, y0] = S(box.x, box.y);
       c.strokeStyle = '#000'; c.lineWidth = 3; c.strokeRect(x0 - 1, y0 - 1, box.w * z + 2, box.h * z + 2);
-      c.strokeStyle = '#ffe14a'; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.strokeRect(x0 - 1, y0 - 1, box.w * z + 2, box.h * z + 2); c.setLineDash([]);
+      c.strokeStyle = grouped ? '#4ad8ff' : '#ffe14a'; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.strokeRect(x0 - 1, y0 - 1, box.w * z + 2, box.h * z + 2); c.setLineDash([]);
+    }
+    if (this.marquee) {
+      const m = this.marquee, [ax2, ay2] = S(Math.min(m.x0, m.x1), Math.min(m.y0, m.y1));
+      const mw = Math.abs(m.x1 - m.x0) * z, mh = Math.abs(m.y1 - m.y0) * z;
+      c.fillStyle = 'rgba(255,225,74,0.12)'; c.fillRect(ax2, ay2, mw, mh);
+      c.strokeStyle = '#ffe14a'; c.lineWidth = 1; c.setLineDash([4, 3]); c.strokeRect(ax2 + 0.5, ay2 + 0.5, mw, mh); c.setLineDash([]);
     }
     // a brush's size, under the pointer
     if (this.cursor && ['paint', 'rubber'].includes(this.tool)) {
@@ -444,13 +456,38 @@ export class Editor {
 
   // ---- what's where -------------------------------------------------------------
 
-  selBox() {
-    if (!this.sel) return null;
-    if (this.sel.t === 'object') {
-      const o = this.spec.objects[this.sel.i], d = this.dos.set(this.spec.set).objects[o?.id];
+  /** Everything picked: the main one, then the others. */
+  all() { return this.sel ? [this.sel, ...this.more] : []; }
+  setAll(list) { this.sel = list[0] ?? null; this.more = list.slice(1); }
+  isSel(t, i) { return this.all().some((s) => s.t === t && s.i === i); }
+
+  /** The bounds of a thing, { x, y, w, h }, or null. */
+  boxOf(s) {
+    if (s.t === 'object') {
+      const o = this.spec.objects[s.i], d = this.dos.set(this.spec.set).objects[o?.id];
       return o && d ? { x: o.x, y: o.y, w: d.w, h: d.h } : null;
     }
-    return this.built.boxes[this.sel.i] ?? null;
+    return this.built.boxes[s.i] ?? null;
+  }
+
+  selBoxes() {
+    return this.all().map((s) => ({ box: this.boxOf(s), grouped: !!this.item(s)?.g })).filter((b) => b.box);
+  }
+
+  /** A thing, and everything grouped with it. */
+  withGroup(s) {
+    const g = this.item(s)?.g;
+    if (!g) return [s];
+    const out = [s];
+    this.spec.objects.forEach((o, i) => { if (o.g === g && !(s.t === 'object' && s.i === i)) out.push({ t: 'object', i }); });
+    this.spec.terrain.forEach((o, i) => { if (o.g === g && !(s.t === 'terrain' && s.i === i)) out.push({ t: 'terrain', i }); });
+    return out;
+  }
+
+  nextGroup() {
+    let m = 0;
+    for (const it of [...this.spec.objects, ...this.spec.terrain]) if (it.g > m) m = it.g;
+    return m + 1;
   }
 
   /** The thing at a world point: { t, i } or null. The selected one first, then the top one. */
@@ -478,7 +515,7 @@ export class Editor {
       if (!ok) continue;
       (it.k === 'erase' || it.erase ? hidden : tests).push({ t: 'terrain', i, ok: true });
     }
-    const cur = this.sel && [...tests, ...hidden].find((h) => h.ok && h.t === this.sel.t && h.i === this.sel.i);
+    const cur = this.sel && [...tests, ...hidden].find((h) => h.ok && this.isSel(h.t, h.i));
     const hit = cur ?? tests.find((h) => h.ok) ?? hidden[0];
     return hit ? { t: hit.t, i: hit.i } : null;
   }
@@ -493,9 +530,9 @@ export class Editor {
 
   // ---- undo ---------------------------------------------------------------------
 
-  snapshot() {
-    // first change to a beaten level: say it'll need beating again
-    if (this.proved(this.spec) && !this.warnedEdit) {
+  snapshot(quiet = false) {
+    // first change to a beaten level: say it'll need beating again (not for grouping, which doesn't change how it plays)
+    if (!quiet && this.proved(this.spec) && !this.warnedEdit) {
       this.warnedEdit = true;
       const { proof: _p, ...before } = this.spec;
       this.offerUndo(JSON.stringify(before), this.undoStack.length);
@@ -510,7 +547,8 @@ export class Editor {
     this.entry.spec = { ...JSON.parse(json) };
     if (proof) this.entry.spec.proof = proof;
     // keep what was picked, if it's still there
-    if (this.sel && !this.item()) this.sel = null;
+    this.more = this.more.filter((s) => this.item(s));
+    if (this.sel && !this.item()) this.sel = this.more.shift() ?? null;
     this.changed();
     this.selection();
   }
@@ -539,7 +577,9 @@ export class Editor {
   trayFor(tool) {
     const t = this.tray, set = this.spec.set, dos = this.dos;
     if (tool === 'move') {
-      t.innerHTML = '<p class="ed-hint">Tap something to pick it, then drag it, or use the buttons at the top to nudge, flip or delete it. Drag empty space to look around; two fingers to zoom.</p>';
+      t.innerHTML = '<p class="ed-hint">Tap something to pick it, then drag it, or use the buttons at the top to nudge, flip or delete it. Drag empty space to look around; two fingers to zoom. To pick several, use Select (or shift-tap with a mouse).</p>';
+    } else if (tool === 'select') {
+      t.innerHTML = '<p class="ed-hint">Tap things to add them (tap again to let go), or drag a box round them. Then move, copy, mirror, flip or delete them all together, or Group them so they always get picked together. Two fingers to look around.</p>';
     } else if (tool === 'pieces') {
       const s = dos.set(set), steel = new Set(SETS[set].steel);
       t.innerHTML = `<div class="ed-strip">${s.pieces.map((p, i) => p ? `<button type="button" data-piece="${i}" class="${this.opts.piece === i ? 'on' : ''}"><img alt="" src="${this.pieceThumb(i)}">${steel.has(i) ? '<span class="ed-steel">STEEL</span>' : ''}</button>` : '').join('')}</div>`;
@@ -577,7 +617,17 @@ export class Editor {
     if (!it) { sb.hidden = true; return; }
     const b = (act, label, on, title = '') => `<button type="button" data-act="${act}" class="${on ? 'on' : ''}" title="${title}">${label}</button>`;
     let html = b('left', '◀', false, 'Nudge left') + b('up', '▲', false, 'Nudge up') + b('down', '▼', false, 'Nudge down') + b('right', '▶', false, 'Nudge right');
-    if (it.k === 'piece') {
+    const list = this.all();
+    if (list.length > 1) {
+      const gs = list.map((s) => this.item(s)?.g);
+      const same = gs[0] && gs.every((g) => g === gs[0]);
+      html = `<span class="ed-n">${list.length} picked</span>` + html
+        + b('mh', '↔ Mirror', false, 'Turn them left-to-right, as a set') + b('mv', '↕ Flip', false, 'Turn them upside down, as a set');
+      if (list.some((s) => s.t === 'terrain')) html += b('front', 'To front') + b('back', 'To back');
+      html += same ? b('ungroup', 'Ungroup', false, 'Let them be picked one at a time again')
+        : b('group', 'Group', false, 'Pick, move and copy them together from now on') + (gs.some(Boolean) ? b('ungroup', 'Ungroup') : '');
+      html += b('copy', 'Copy') + b('delete', 'Delete') + b('done', '✓');
+    } else if (it.k === 'piece') {
       html += b('fh', '↔ Mirror', it.fh) + b('fv', '↕ Flip', it.fv) + b('behind', 'Behind', it.behind, 'Only fills where there’s nothing yet') + b('erase', 'Cut', it.erase, 'Cuts its shape out instead');
     } else if (it.k === 'stamp') {
       html += b('dir', it.dir < 0 ? '← Left' : 'Right →', false, 'Which way');
@@ -585,8 +635,10 @@ export class Editor {
     } else if (this.sel.t === 'object') {
       html += b('fv', '↕ Flip', it.fv) + b('behind', 'Behind', it.behind, 'Behind the ground');
     }
-    if (this.sel.t === 'terrain') html += b('front', 'To front') + b('back', 'To back');
-    html += b('copy', 'Copy') + b('delete', 'Delete') + b('done', '✓');
+    if (list.length === 1) {
+      if (this.sel.t === 'terrain') html += b('front', 'To front') + b('back', 'To back');
+      html += b('copy', 'Copy') + b('delete', 'Delete') + b('done', '✓');
+    }
     sb.innerHTML = html;
     sb.hidden = false;
     for (const el of sb.querySelectorAll('[data-act]')) {
@@ -610,18 +662,18 @@ export class Editor {
   }
 
   nudge(dir, snap = false) {
-    const it = this.item();
-    if (!it) return;
+    if (!this.item()) return;
     if (snap) this.snapshot();
     const [dx, dy] = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] }[dir];
-    this.shift(it, dx, dy);
+    for (const s of this.all()) this.shift(this.item(s), dx, dy);
     this.changed();
   }
 
   selAction(act) {
     const it = this.item();
     if (!it) return;
-    if (act === 'done') { this.sel = null; this.selection(); this.draw(); return; }
+    if (act === 'done') { this.select(null); return; }
+    if (this.more.length) { this.multiAction(act); return; }
     this.snapshot();
     const list = this.sel.t === 'object' ? this.spec.objects : this.spec.terrain;
     switch (act) {
@@ -631,12 +683,12 @@ export class Editor {
       case 'dir': it.dir = it.dir < 0 ? 1 : -1; break;
       case 'less': it.n = Math.max(1, (it.n ?? 1) - 1); break;
       case 'more': it.n = Math.min(40, (it.n ?? 1) + 1); break;
-      case 'delete': list.splice(this.sel.i, 1); this.sel = null; break;
+      case 'delete': list.splice(this.sel.i, 1); this.setAll([]); break;
       case 'copy': {
         const c = structuredClone(it);
         this.shift(c, 8, it.k === 'stamp' ? 0 : 8);
         list.push(c);
-        this.sel = { t: this.sel.t, i: list.length - 1 };
+        this.setAll([{ t: this.sel.t, i: list.length - 1 }]);
         break;
       }
       case 'front': list.splice(this.sel.i, 1); list.push(it); this.sel.i = list.length - 1; break;
@@ -646,7 +698,114 @@ export class Editor {
     this.selection();
   }
 
-  select(sel) { this.sel = sel; this.selection(); this.draw(); }
+  /** Several picked at once: the same buttons, on all of them. */
+  multiAction(act) {
+    const list = this.all();
+    const lists = { object: this.spec.objects, terrain: this.spec.terrain };
+    if (act === 'group' || act === 'ungroup') {
+      this.snapshot(true);
+      if (act === 'group') { const g = this.nextGroup(); for (const s of list) this.item(s).g = g; }
+      else for (const s of list) delete this.item(s).g;
+      this.changed(); this.selection();
+      return;
+    }
+    this.snapshot();
+    switch (act) {
+      case 'delete':
+        for (const t of ['object', 'terrain']) {
+          for (const i of list.filter((s) => s.t === t).map((s) => s.i).sort((a, b) => b - a)) lists[t].splice(i, 1);
+        }
+        this.setAll([]);
+        break;
+      case 'copy': {
+        // groups copy to groups of their own
+        const sorted = [...list].sort((a, b) => a.i - b.i), groups = new Map(), out = [];
+        let next = this.nextGroup();
+        for (const s of sorted) {
+          const c = structuredClone(this.item(s));
+          if (c.g) { if (!groups.has(c.g)) groups.set(c.g, next++); c.g = groups.get(c.g); }
+          this.shift(c, 8, c.k === 'stamp' ? 0 : 8);
+          lists[s.t].push(c);
+          out.push({ t: s.t, i: lists[s.t].length - 1 });
+        }
+        this.setAll(out);
+        break;
+      }
+      case 'front': case 'back': {
+        const at = new Set(list.filter((s) => s.t === 'terrain').map((s) => s.i)), keep = [], moved = [];
+        this.spec.terrain.forEach((it, i) => (at.has(i) ? moved : keep).push(it));
+        const front = act === 'front';
+        this.spec.terrain = front ? [...keep, ...moved] : [...moved, ...keep];
+        const first = front ? keep.length : 0;
+        this.setAll([...list.filter((s) => s.t === 'object'), ...moved.map((_, k) => ({ t: 'terrain', i: first + k }))]);
+        break;
+      }
+      case 'mh': case 'mv': this.reflect(list, act === 'mh'); break;
+    }
+    this.changed();
+    this.selection();
+  }
+
+  /**
+   * Turns the picked things as a set about the middle of the lot: left-to-right
+   * (horizontal) or upside down. Pieces are moved across and turned; brush
+   * strokes and stamps (a staircase turns to face the other way) are moved
+   * across. Things can only be flipped upside down, not mirrored, so they're
+   * just moved across (a one-way arrow becomes the other way's).
+   */
+  reflect(list, horizontal) {
+    const boxes = list.map((s) => ({ s, b: this.boxOf(s), it: this.item(s) })).filter((r) => r.b);
+    if (!boxes.length) return;
+    const lo = horizontal ? Math.min(...boxes.map((r) => r.b.x)) : Math.min(...boxes.map((r) => r.b.y));
+    const hi = horizontal ? Math.max(...boxes.map((r) => r.b.x + r.b.w)) : Math.max(...boxes.map((r) => r.b.y + r.b.h));
+    const kinds = objectKinds(this.dos, this.spec.set);
+    let stuck = 0, objects = 0;
+    for (const { s, b, it } of boxes) {
+      if (it.pts) {
+        const k = horizontal ? 0 : 1;
+        it.pts = it.pts.map((p) => { const q = [...p]; q[k] = lo + hi - 1 - q[k]; return q; });
+      } else if (it.k === 'stamp') {
+        if (horizontal) { it.x = lo + hi - 1 - it.x; it.dir = -it.dir; } else stuck++;
+      } else if (horizontal) {
+        it.x = lo + hi - (it.x + b.w);
+        if (it.k === 'piece') { if (it.fh) delete it.fh; else it.fh = true; }
+        else {
+          const k = kinds.find((m) => m.id === it.id), flip = k && { left: 'right', right: 'left' }[k.kind];
+          const other = flip && kinds.find((m) => m.kind === flip && m.w === k.w && m.h === k.h);
+          if (other) it.id = other.id; else objects++;
+        }
+      } else {
+        it.y = lo + hi - (it.y + b.h);
+        if (it.fv) delete it.fv; else it.fv = true;
+      }
+    }
+    if (objects) this.toast('Turned them round, but things like exits can only be moved across, not mirrored.');
+    else if (stuck) this.toast('Skill stamps stay where they are when you flip upside down.');
+  }
+
+  select(sel) { this.setAll(sel ? this.withGroup(sel) : []); this.selection(); this.draw(); }
+
+  /** Adds a tapped thing (and its group) to the picked ones, or lets it go if it's picked already. */
+  toggle(h) {
+    const mates = this.withGroup(h), list = this.all();
+    const has = (a, s) => a.some((m) => m.t === s.t && m.i === s.i);
+    this.setAll(this.isSel(h.t, h.i) ? list.filter((s) => !has(mates, s)) : [...list, ...mates.filter((m) => !has(list, m))]);
+    this.selection(); this.draw();
+  }
+
+  /** Picks everything the box touches (brush strokes only if it holds the whole stroke), plus what they're grouped with. */
+  pickInside({ x0, y0, x1, y1 }) {
+    [x0, x1] = [Math.min(x0, x1), Math.max(x0, x1)]; [y0, y1] = [Math.min(y0, y1), Math.max(y0, y1)];
+    const touches = (b) => b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0;
+    const holds = (b) => b.x >= x0 && b.y >= y0 && b.x + b.w <= x1 && b.y + b.h <= y1;
+    const found = [];
+    this.spec.objects.forEach((_, i) => { const b = this.boxOf({ t: 'object', i }); if (b && touches(b)) found.push({ t: 'object', i }); });
+    this.spec.terrain.forEach((it, i) => { const b = this.boxOf({ t: 'terrain', i }); if (b && (it.pts ? holds(b) : touches(b))) found.push({ t: 'terrain', i }); });
+    const list = this.all();
+    for (const f of found) for (const m of this.withGroup(f)) if (!list.some((s) => s.t === m.t && s.i === m.i)) list.push(m);
+    this.setAll(list);
+    this.selection(); this.draw();
+  }
 
   // ---- pointers ---------------------------------------------------------------
 
@@ -656,7 +815,7 @@ export class Editor {
     const pos = (e) => { const r = cv.getBoundingClientRect(); return { sx: e.clientX - r.left, sy: e.clientY - r.top }; };
 
     const startPinch = () => {
-      if (gesture?.kind === 'stroke' || gesture?.kind === 'drag') this.cancelGesture(gesture);
+      if (['stroke', 'drag', 'marquee'].includes(gesture?.kind)) this.cancelGesture(gesture);
       const [a, b] = [...pts.values()];
       gesture = { kind: 'pinch', d0: Math.hypot(a.sx - b.sx, a.sy - b.sy), z0: this.cam.z, mid: { sx: (a.sx + b.sx) / 2, sy: (a.sy + b.sy) / 2 }, cam0: { ...this.cam } };
     };
@@ -671,7 +830,7 @@ export class Editor {
       if (pts.size > 2) return;
       const w = this.toWorld(p.sx, p.sy);
       const panOnly = e.button === 1 || this.spaceDown;
-      gesture = this.begin(w, p, panOnly, e.pointerType);
+      gesture = this.begin(w, p, panOnly, e.pointerType, e.shiftKey);
     });
     cv.addEventListener('pointermove', (e) => {
       const p = pos(e);
@@ -717,7 +876,7 @@ export class Editor {
   }
 
   /** A finger (or the mouse) goes down on the level. */
-  begin(w, p, panOnly, type) {
+  begin(w, p, panOnly, type, shift = false) {
     const g = { w0: w, p0: p, cam0: { ...this.cam }, moved: false, touch: type !== 'mouse' };
     if (panOnly) return { ...g, kind: 'pan' };
     const tool = this.tool;
@@ -735,7 +894,8 @@ export class Editor {
     }
     // on the selected thing (or, moving, on anything): drag it
     const h = this.hit(w.x, w.y);
-    const onSel = h && this.sel && h.t === this.sel.t && h.i === this.sel.i;
+    const onSel = h && this.isSel(h.t, h.i);
+    if (shift && h && tool !== 'stamps') return { ...g, kind: 'tap', hit: h, toggle: true };
     if (onSel || (tool === 'move' && h)) {
       if (!onSel) this.select(h);
       return { ...g, kind: 'drag', at: { x: Math.round(w.x), y: Math.round(w.y) }, snapped: false };
@@ -746,7 +906,12 @@ export class Editor {
   move(g, w, p) {
     const far = Math.hypot(p.sx - g.p0.sx, p.sy - g.p0.sy) > (g.touch ? 8 : 4);
     if (far) g.moved = true;
-    if (g.kind === 'tap' && far) g.kind = 'pan';
+    if (g.kind === 'tap' && far) g.kind = this.tool === 'select' ? 'marquee' : 'pan';
+    if (g.kind === 'marquee') {
+      this.marquee = { x0: g.w0.x, y0: g.w0.y, x1: w.x, y1: w.y };
+      this.draw();
+      return;
+    }
     if (g.kind === 'pan') {
       this.cam.x = g.cam0.x - (p.sx - g.p0.sx) / this.cam.z;
       this.cam.y = g.cam0.y - (p.sy - g.p0.sy) / this.cam.z;
@@ -756,7 +921,7 @@ export class Editor {
       const nx = Math.round(w.x), ny = Math.round(w.y);
       if (nx === g.at.x && ny === g.at.y) return;
       if (!g.snapped) { this.snapshot(); g.snapped = true; }
-      this.shift(this.item(), nx - g.at.x, ny - g.at.y);
+      for (const s of this.all()) this.shift(this.item(s), nx - g.at.x, ny - g.at.y);
       g.at = { x: nx, y: ny };
       this.changed();
     } else if (g.kind === 'stroke') {
@@ -770,7 +935,8 @@ export class Editor {
   }
 
   end(g) {
-    if (g.kind === 'tap') this.tap(g.w0, g.hit);
+    if (g.kind === 'tap') this.tap(g.w0, g.hit, g.toggle);
+    else if (g.kind === 'marquee') { const m = this.marquee; this.marquee = null; if (m) this.pickInside(m); }
     else if (g.kind === 'stroke') {
       if (this.spec.terrain.length === g.count0) this.undoStack.pop();
       this.cursor = null;
@@ -785,18 +951,20 @@ export class Editor {
   cancelGesture(g) {
     if (g.kind === 'stroke') { this.spec.terrain.length = g.count0; this.undoStack.pop(); this.changed(); }
     if (g.kind === 'drag' && g.snapped) this.undo();
+    if (g.kind === 'marquee') { this.marquee = null; this.draw(); }
   }
 
   /** A tap on the level, with the tool in hand. */
-  tap(w, hit) {
+  tap(w, hit, toggle = false) {
     const x = Math.round(w.x), y = Math.round(w.y), dos = this.dos, set = dos.set(this.spec.set);
+    if (toggle || this.tool === 'select') { if (hit) this.toggle(hit); else if (!toggle) this.select(null); return; }
     if (this.tool === 'move') { this.select(hit); return; }
     if (this.tool === 'pieces') {
       if (this.opts.piece === null) { this.toast('Pick a piece first (below).'); return; }
       const p = set.pieces[this.opts.piece];
       this.snapshot();
       this.spec.terrain.push({ k: 'piece', p: this.opts.piece, x: x - (p.w >> 1), y: y - (p.h >> 1) });
-      this.sel = { t: 'terrain', i: this.spec.terrain.length - 1 };
+      this.setAll([{ t: 'terrain', i: this.spec.terrain.length - 1 }]);
     } else if (this.tool === 'things') {
       if (this.opts.thing === null) { this.toast('Pick one first (below).'); return; }
       const d = set.objects[this.opts.thing];
@@ -805,7 +973,7 @@ export class Editor {
       const kind = objectKinds(dos, this.spec.set).find((k) => k.id === this.opts.thing)?.kind;
       const oy = kind === 'exit' ? standY(dos, this.spec.set, this.opts.thing, this.ground(x, y)) : y - (d.h >> 1);
       this.spec.objects.push({ id: this.opts.thing, x: x - (d.w >> 1), y: oy });
-      this.sel = { t: 'object', i: this.spec.objects.length - 1 };
+      this.setAll([{ t: 'object', i: this.spec.objects.length - 1 }]);
     } else if (this.tool === 'stamps') {
       const s = this.opts.stamp;
       // the top of a staircase going the same way: one more staircase
@@ -815,7 +983,7 @@ export class Editor {
         if (i >= 0) {
           this.snapshot();
           this.spec.terrain[i].n = Math.min(40, (this.spec.terrain[i].n ?? 1) + 1);
-          this.sel = { t: 'terrain', i };
+          this.setAll([{ t: 'terrain', i }]);
           this.changed(); this.selection();
           return;
         }
@@ -823,7 +991,7 @@ export class Editor {
       const gy = s === 'bomb' ? y + 4 : this.ground(x, y);
       this.snapshot();
       this.spec.terrain.push({ k: 'stamp', s, x, y: gy, dir: this.opts.dir, n: 1 });
-      this.sel = { t: 'terrain', i: this.spec.terrain.length - 1 };
+      this.setAll([{ t: 'terrain', i: this.spec.terrain.length - 1 }]);
     }
     this.changed();
     this.selection();
@@ -863,6 +1031,7 @@ export class Editor {
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); return; }
     if (mod && e.code === 'KeyY') { e.preventDefault(); this.redo(); return; }
+    if (mod && e.code === 'KeyG' && this.more.length) { e.preventDefault(); this.multiAction(e.shiftKey ? 'ungroup' : 'group'); return; }
     if (!this.sel) return;
     const arrows = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
     if (arrows[e.code]) { e.preventDefault(); this.nudge(arrows[e.code], true); }

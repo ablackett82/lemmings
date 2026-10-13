@@ -157,3 +157,57 @@ test('check() cleans up anything odd in a level', () => {
   assert.deepEqual(c.terrain, [{ k: 'stamp', s: 'build', x: 1, y: 1, dir: -1, n: 1 }]);
   assert.equal(c.objects[0].id, 15);
 });
+
+test('a group number survives check(), and changes nothing about how a level plays', () => {
+  const spec = newLevel(0);
+  spec.terrain.push({ k: 'piece', p: 1, x: 10, y: 10, g: 3 }, { k: 'stamp', s: 'dig', x: 5, y: 5, dir: 1, g: 3 });
+  spec.objects[0].g = 3;
+  const c = check(spec);
+  assert.deepEqual(c.terrain.map((t) => t.g), [undefined, 3, 3]);
+  assert.equal(c.objects[0].g, 3);
+  assert.equal(check({ ...spec, terrain: [{ k: 'piece', p: 1, x: 1, y: 1, g: 99999 }] }).terrain[0].g, 9999);
+  const plain = structuredClone(spec);
+  for (const it of [...plain.terrain, ...plain.objects]) delete it.g;
+  assert.equal(playKey(spec), playKey(plain));
+});
+
+test('the editor picks, groups, copies, mirrors and deletes several things at once', async () => {
+  globalThis.document ??= { createElement: () => ({ getContext: () => ({}) }) };
+  const { Editor } = await import('../src/editor/editor.js');
+  const spec = check({ ...newLevel(0, standY(dos, 0, 0, 128)),
+    terrain: [{ k: 'piece', p: 1, x: 100, y: 20 }, { k: 'piece', p: 1, x: 200, y: 20 }, { k: 'paint', r: 3, pts: [[300, 30], [320, 30]] }, { k: 'stamp', s: 'build', x: 400, y: 100, dir: 1 }],
+  });
+  const ed = Object.create(Editor.prototype);
+  Object.assign(ed, { entry: { spec }, hooks: { dos: () => dos }, undoStack: [], redoStack: [], more: [], sel: null, tool: 'select', cam: { z: 1 }, selbar: { querySelectorAll: () => [], hidden: true }, toast() {}, draw() {}, changed() { this.built = buildCustom(this.spec, dos); } });
+  ed.built = buildCustom(spec, dos);
+  const w = dos.set(0).pieces[1].w;
+
+  // a box round the first two pieces: the paint stroke isn't wholly inside it, so it's left
+  ed.pickInside({ x0: 90, y0: 10, x1: 200 + w + 5, y1: 20 + dos.set(0).pieces[1].h + 5 });
+  assert.deepEqual(ed.all().filter((s) => s.t === 'terrain').map((s) => s.i).sort(), [0, 1]);
+
+  ed.multiAction('group');
+  const g = spec.terrain[0].g;
+  assert.ok(g && spec.terrain[1].g === g && spec.terrain[2].g === undefined);
+  ed.select({ t: 'terrain', i: 1 });
+  assert.equal(ed.all().length, 2, 'picking one picks its group');
+
+  ed.multiAction('mh');
+  assert.deepEqual([spec.terrain[0].x, spec.terrain[1].x], [200, 100], 'the two swap places');
+  assert.ok(spec.terrain[0].fh && spec.terrain[1].fh);
+  ed.multiAction('mh');
+  assert.deepEqual([spec.terrain[0].x, spec.terrain[1].x, spec.terrain[0].fh], [100, 200, undefined]);
+
+  ed.multiAction('copy');
+  assert.equal(spec.terrain.length, 6);
+  const g2 = spec.terrain[4].g;
+  assert.ok(g2 && g2 !== g && spec.terrain[5].g === g2, 'a copy is a group of its own');
+  assert.equal(spec.terrain[4].x, 108);
+
+  ed.multiAction('delete');
+  assert.equal(spec.terrain.length, 4);
+  assert.equal(ed.all().length, 0);
+  ed.setAll([{ t: 'terrain', i: 0 }, { t: 'terrain', i: 3 }]);
+  ed.multiAction('mh');
+  assert.equal(spec.terrain[3].dir, -1, 'a staircase turns to face the other way');
+});
