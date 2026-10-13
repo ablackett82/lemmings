@@ -8,7 +8,7 @@ it's approved, then it's listed for everyone.
 - Storage: one KV namespace, `LEVELS` (keys are listed in `src/index.js`)
 - New levels are announced by the Telegram bot @ablackett_lemmings_bot, with a
   picture and a **Look & approve** button that opens the review page.
-- Everything waiting: `/review?key=<ADMIN_KEY>`
+- Everything waiting, and everything shown: `/review?key=<ADMIN_KEY>`. Open a level from there to approve, reject or **Delete for good**. There are no admin accounts: the key is the only way in.
 
 The game uses:
 
@@ -18,6 +18,7 @@ The game uses:
 | `POST /api/levels` | `{ name, author, level, preview }` (preview a PNG data URL) → `{ id, status }` |
 | `GET /api/levels/<id>` | the level if approved, otherwise just its status |
 | `GET /api/levels/<id>/preview.png` | its picture |
+| `POST /api/levels/<id>/removal` | `{ reason?, who? }` → a Telegram message to the approver with a **Look & remove** button (5 an hour from one address) |
 
 Limits: 5 levels an hour from one address, 40 a day in all.
 

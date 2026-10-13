@@ -25,6 +25,7 @@ const MAX_PREVIEW = 300_000;   // bytes of PNG
 const PER_HOUR = 5;            // submissions per address per hour
 const PER_DAY = 40;            // submissions from everyone per day
 const COMMENTS_PER_HOUR = 10;  // comments per address per hour
+const REPORTS_PER_HOUR = 5;    // removal requests per address per hour
 const ORIGINS = ['https://ablackett82.github.io'];
 const GAME = 'https://ablackett82.github.io/arcade/games/lemmings/';
 const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/; // testing on this computer
@@ -45,6 +46,7 @@ export default {
       if (path === '/api/levels' && req.method === 'POST') return json(...withCors(await submit(req, env, url), cors));
       if ((m = path.match(/^\/api\/levels\/([A-Z]+-\d{3})\/preview\.png$/))) return preview(env, m[1]);
       if ((m = path.match(/^\/api\/levels\/([A-Z]+-\d{3})$/)) && req.method === 'GET') return json(...withCors(await getLevel(env, m[1], url), cors));
+      if ((m = path.match(/^\/api\/levels\/([A-Z]+-\d{3})\/removal$/)) && req.method === 'POST') return json(...withCors(await askRemoval(req, env, m[1], url), cors));
       if ((m = path.match(/^\/api\/levels\/([A-Z]+-\d{3})\/play$/)) && req.method === 'POST') return json(...withCors(await play(req, env, m[1]), cors));
       if ((m = path.match(/^\/api\/levels\/([A-Z]+-\d{3})\/rating$/)) && req.method === 'POST') return json(...withCors(await rate(req, env, m[1], url), cors));
       if ((m = path.match(/^\/api\/levels\/([A-Z]+-\d{3})\/comments$/)) && req.method === 'GET') return json(...withCors(await comments(env, m[1]), cors));
@@ -93,6 +95,36 @@ async function submit(req, env, url) {
   await env.LEVELS.put(`level:${id}`, JSON.stringify(rec));
   await notify(env, url.origin, rec, png);
   return [{ id, status: 'pending' }, 201];
+}
+
+// anyone asks for a level to be taken down: it's a Telegram message to the approver, who decides
+async function askRemoval(req, env, id, url) {
+  let body = {};
+  try { body = await req.json(); } catch { /* no reason given is fine */ }
+  const rec = await env.LEVELS.get(`level:${id}`, 'json');
+  if (!rec) return [{ error: 'no such level' }, 404];
+  const ip = req.headers.get('cf-connecting-ip') || 'unknown';
+  const key = `report:${id}:${ip}`, hourKey = `report:${ip}:${Math.floor(Date.now() / 3_600_000)}`;
+  if (await env.LEVELS.get(key)) return [{ ok: true }, 200];   // already asked: say nothing new
+  const n = +await env.LEVELS.get(hourKey);
+  if (n >= REPORTS_PER_HOUR) return [{ error: 'too many requests, try later' }, 429];
+  await Promise.all([
+    env.LEVELS.put(key, '1', { expirationTtl: 86_400 }),
+    env.LEVELS.put(hourKey, String(n + 1), { expirationTtl: 3700 }),
+  ]);
+  await notifyRemoval(env, url.origin, rec, clean(body.reason, 200), clean(body.who, 24));
+  return [{ ok: true }, 200];
+}
+
+/** Everything about a level: it, its picture, its place in the list, its plays and ratings. */
+async function deleteLevel(env, id) {
+  await Promise.all([env.LEVELS.delete(`level:${id}`), env.LEVELS.delete(`preview:${id}`)]);
+  const index = (await approvedIndex(env)).filter(e => e.id !== id);
+  await env.LEVELS.put('index:approved', JSON.stringify(index));
+  if (env.STATS) await env.STATS.batch([
+    env.STATS.prepare('DELETE FROM plays WHERE level = ?').bind(id),
+    env.STATS.prepare('DELETE FROM ratings WHERE level = ?').bind(id),
+  ]);
 }
 
 async function getLevel(env, id, url) {
@@ -201,7 +233,11 @@ async function reviewList(env, url) {
   const { results: waiting } = await env.STATS.prepare(`SELECT id, level, name, comment FROM ratings WHERE status = 'pending' ORDER BY created DESC`).all();
   const cs = await Promise.all(waiting.map(async c =>
     `<li><a href="/review/comment/${c.id}?t=${await token(env, `c${c.id}`)}">${esc(c.comment.slice(0, 60))}</a> on ${c.level}${c.name ? ` by ${esc(c.name)}` : ''}</li>`));
+  const live = await Promise.all((await approvedIndex(env)).map(async r =>
+    `<li><a href="/review/${r.id}?t=${await token(env, r.id)}">${esc(r.name)}</a> by ${esc(r.author)} · ${r.id} <small>${when(r.created)}</small></li>`));
   return html(`<h1>Waiting for approval</h1>${items.length ? `<ul>${items.join('')}</ul>` : '<p>No levels waiting.</p>'}
+    <h2>Shown to everyone</h2>${live.length ? `<ul>${live.join('')}</ul>` : '<p>None yet.</p>'}
+    <p><small>Open one to delete it for good.</small></p>
     <h2>Comments</h2>${cs.length ? `<ul>${cs.join('')}</ul>` : '<p>No comments waiting.</p>'}`);
 }
 
@@ -220,6 +256,9 @@ async function reviewPage(env, id, url) {
     <form method="post" action="/review/${id}?t=${t}">
       <button name="action" value="approve" class="yes">Approve</button>
       <button name="action" value="reject" class="no">Reject</button>
+    </form>
+    <form method="post" action="/review/${id}?t=${t}" onsubmit="return confirm('Delete this level for good, with its stars and comments?')">
+      <button name="action" value="delete" class="gone">Delete for good</button>
     </form>`);
 }
 
@@ -229,7 +268,8 @@ async function decide(req, env, id, url) {
   const rec = await env.LEVELS.get(`level:${id}`, 'json');
   if (!rec) return html('<p>That level has gone.</p>', 404);
   const action = (await req.formData()).get('action');
-  if (action !== 'approve' && action !== 'reject') return html('<p>Pick approve or reject.</p>', 400);
+  if (action === 'delete') { await deleteLevel(env, id); return html(`<h1>Deleted</h1><p>${esc(rec.name)} (${id}) has gone, with its picture, stars and comments.</p>`); }
+  if (action !== 'approve' && action !== 'reject') return html('<p>Pick approve, reject or delete.</p>', 400);
   rec.status = action === 'approve' ? 'approved' : 'rejected';
   rec.decided = Date.now();
   // a rejected level is kept for a month so its maker can see what happened
@@ -281,6 +321,21 @@ async function notifyComment(env, origin, rec, c) {
       chat_id: env.TELEGRAM_CHAT,
       text: `Comment on ${rec.name} (${rec.id})\n${'★'.repeat(c.stars)} from ${c.name || 'someone'}:\n“${c.comment}”`,
       reply_markup: { inline_keyboard: [[{ text: 'Show or hide', url: `${origin}/review/comment/${c.id}?t=${t}` }]] },
+    }),
+  }).then(async r => { if (!r.ok) console.log('telegram', r.status, await r.text()); })
+    .catch(e => console.log('telegram failed', String(e)));
+}
+
+// A Telegram message asking for a level to come down, with a button to its review page (which can delete it)
+async function notifyRemoval(env, origin, rec, reason, who) {
+  if (!env.TELEGRAM_TOKEN || !env.TELEGRAM_CHAT) return;
+  const t = await token(env, rec.id);
+  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendMessage`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: env.TELEGRAM_CHAT,
+      text: `Removal requested: ${rec.name} (${rec.id}) by ${rec.author}\n${who ? `Asked by ${who}` : 'Asked by someone'}${reason ? `:\n“${reason}”` : ''}`,
+      reply_markup: { inline_keyboard: [[{ text: 'Look & remove', url: `${origin}/review/${rec.id}?t=${t}` }]] },
     }),
   }).then(async r => { if (!r.ok) console.log('telegram', r.status, await r.text()); })
     .catch(e => console.log('telegram failed', String(e)));
@@ -379,7 +434,7 @@ function html(body, status = 200) {
   img { width: 100%; image-rendering: pixelated; border: 1px solid #444; background: #000; }
   .status { font-weight: bold; } .approved { color: #6d6; } .rejected { color: #e66; }
   form { display: flex; gap: 12px; } button { flex: 1; font-size: 20px; padding: 16px; border: 0; border-radius: 10px; color: #fff; }
-  .yes { background: #2a8a3a; } .no { background: #a33; }
+  .yes { background: #2a8a3a; } .no { background: #a33; } .gone { background: #333; border: 1px solid #a33; margin-top: 12px; }
   blockquote { font-size: 20px; margin: 12px 0; padding: 12px; border-left: 4px solid #8cf; background: #222; }
   .play { display: block; text-align: center; padding: 14px; border: 2px solid #8cf; border-radius: 10px; text-decoration: none; font-weight: bold; }
 </style></head><body>${body}</body></html>`, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });

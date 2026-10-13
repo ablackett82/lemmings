@@ -164,6 +164,7 @@ export class Editor {
           <button type="button" data-act="edit" class="main">Edit</button>
           <button type="button" data-act="share" ${proved && !(pub && pub.status !== 'gone' && pub.status !== 'rejected') ? '' : 'disabled'}>Share</button>
           <button type="button" data-act="copy">Copy</button>
+          ${e.pub && (e.pub.status === 'approved' || e.pub.status === 'pending') ? '<button type="button" data-act="remove" title="Ask for it to come off Our levels">Ask to remove</button>' : ''}
           <button type="button" data-act="delete">Delete</button>
         </div></div>`;
     }).join('');
@@ -201,8 +202,9 @@ export class Editor {
       store.saveMine({ id: store.newId(), spec });
       this.listMine();
     } else if (act === 'delete') {
-      this.confirm(`Delete “${esc(e.spec.name || 'Untitled')}”? This can’t be undone.`, 'Delete', () => { store.removeMine(e.id); this.listMine(); });
-    } else if (act === 'share') this.share(e);
+      this.confirm(`Delete “${esc(e.spec.name || 'Untitled')}”? This can’t be undone.${e.pub && (e.pub.status === 'approved' || e.pub.status === 'pending') ? ' It stays in Our levels: use Ask to remove first if you want it gone.' : ''}`, 'Delete', () => { store.removeMine(e.id); this.listMine(); });
+    } else if (act === 'remove') this.askRemoval(e.pub.code, e.spec.name);
+    else if (act === 'share') this.share(e);
   }
 
   create(set) {
@@ -574,7 +576,22 @@ export class Editor {
     this.draw();
   }
 
+  /** Fills the tray for a tool, keeping where it was scrolled to if it's the same tool (picking a piece redraws it). */
   trayFor(tool) {
+    const same = this.trayTool === tool, left = same ? this.tray.querySelector('.ed-strip')?.scrollLeft ?? 0 : 0, top = same ? this.tray.scrollTop : 0;
+    this.drawTray(tool);
+    this.trayTool = tool;
+    const strip = this.tray.querySelector('.ed-strip');
+    if (strip && left) {
+      // the pictures may not have their widths yet, so again as they arrive
+      const apply = () => { strip.scrollLeft = left; };
+      apply(); requestAnimationFrame(apply);
+      for (const img of strip.querySelectorAll('img')) if (!img.complete) img.addEventListener('load', apply, { once: true });
+    }
+    this.tray.scrollTop = top;
+  }
+
+  drawTray(tool) {
     const t = this.tray, set = this.spec.set, dos = this.dos;
     if (tool === 'move') {
       t.innerHTML = '<p class="ed-hint">Tap something to pick it, then drag it, or use the buttons at the top to nudge, flip or delete it. Drag empty space to look around; two fingers to zoom. To pick several, use Select (or shift-tap with a mouse).</p>';
@@ -1140,6 +1157,37 @@ export class Editor {
     this.save();
     this.root.hidden = true;
     this.hooks.test(this.spec, buildCustom(this.spec, this.dos).level);
+  }
+
+  /** "Ask to remove" a shared level: are you sure, then a note to the approver, who decides. The red button wants two taps. */
+  askRemoval(code, name) {
+    this.dialog.innerHTML = `
+      <h2>Are you sure?</h2>
+      <p class="ed-note">Ask for “${esc(name || code)}” to be taken down for everyone. The person who looks after Our levels will have a look first.</p>
+      <label class="ed-text"><span>Why? (if you like)</span><input type="text" class="ed-why" maxlength="200" placeholder="e.g. I made a better one"></label>
+      <label class="ed-text"><span>Your name (if you like)</span><input type="text" class="ed-who" maxlength="24" value="${esc(store.author())}"></label>
+      <p class="ed-err"></p>
+      <div class="ed-row ed-end"><button type="button" class="ed-nuke">☢ Request removal</button><button type="button" class="main ed-no">No, keep it</button></div>`;
+    this.modal.hidden = false;
+    const err = this.dialog.querySelector('.ed-err'), nuke = this.dialog.querySelector('.ed-nuke');
+    let timer = null, armed = false;
+    const arm = (on) => {
+      clearTimeout(timer); armed = on;
+      nuke.classList.toggle('armed', on);
+      nuke.textContent = on ? 'TAP AGAIN TO BE SURE' : '☢ Request removal';
+      if (on) timer = setTimeout(() => arm(false), 4000);
+    };
+    this.dialog.querySelector('.ed-no').addEventListener('click', () => { arm(false); this.closeModal(); });
+    nuke.addEventListener('click', async () => {
+      if (!armed) { arm(true); return; }
+      arm(false);
+      nuke.disabled = true; err.textContent = 'Sending…';
+      try {
+        await store.askRemoval(code, this.dialog.querySelector('.ed-why').value.trim(), this.dialog.querySelector('.ed-who').value.trim());
+        this.closeModal();
+        this.toast('Sent. It will come down once it’s been looked at.');
+      } catch (x) { err.textContent = x.message; nuke.disabled = false; }
+    });
   }
 
   share(e) {

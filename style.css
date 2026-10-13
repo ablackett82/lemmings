@@ -241,7 +241,7 @@ body:has(#arcade-home) #editor .ed-bar { padding-left: calc(var(--sat-l) + 76px)
 #ui .ui-sort { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 #ui .ui-sort select { font: inherit; font-size: 16px; padding: 6px 8px; border-radius: 8px; }
 /* the rating card, and what people said */
-#ui .ui-rate, #ui .ui-said { width: min(520px, 94vw); }
+#ui .ui-rate, #ui .ui-said, #ui .ui-remove { width: min(520px, 94vw); }
 #ui .ui-stars { display: flex; gap: 6px; justify-content: center; }
 #ui .ui-stars button { font-size: 40px; line-height: 1; padding: 6px 10px; color: #555; background: #111; }
 #ui .ui-stars button.on { color: #ffd060; }
@@ -256,6 +256,9 @@ body:has(#arcade-home) #editor .ed-bar { padding-left: calc(var(--sat-l) + 76px)
 #ui .ui-field { align-items: stretch; }
 #ui .ui-rate-send:not(:disabled) { background: var(--green); color: #000; }
 #ui .ui-rate-send:disabled { opacity: 0.4; }
+#ui .ui-remove-nuke, #editor .ed-nuke { background: #5a1c1c; border-color: #a33; color: #ffb0b0; }
+#ui .ui-remove-nuke.armed, #editor .ed-nuke.armed { background: #d02020; border-color: #ff6060; color: #fff; animation: nuke 0.5s ease-in-out infinite alternate; }
+@keyframes nuke { from { box-shadow: 0 0 0 0 #ff404000; } to { box-shadow: 0 0 14px 3px #ff4040; } }
 #ui .ui-toast { position: fixed; left: 50%; top: 20%; transform: translateX(-50%); background: #000d; border: 2px solid var(--green); color: #fff; padding: 10px 16px; border-radius: 10px; max-width: 90vw; text-align: center; pointer-events: none; z-index: 5; }
 #ui .ui-toast[hidden] { display: none; }
 #ui .ui-said-one, #ui .ui-field input, #ui .ui-field textarea { text-transform: none; }

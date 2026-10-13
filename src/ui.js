@@ -93,6 +93,18 @@ export class UI {
           <button class="ui-rate-skip" type="button">Not now</button>
         </div>
       </div>
+      <div class="ui-panel ui-remove" hidden>
+        <h2>Are you sure?</h2>
+        <p class="ui-note ui-remove-title"></p>
+        <p class="ui-note">This asks the person who looks after Our levels to take it down for everyone. They’ll have a look first.</p>
+        <label class="ui-field">Why? (if you like) <input class="ui-remove-why" maxlength="200" autocomplete="off"></label>
+        <label class="ui-field">Your name (if you like) <input class="ui-remove-who" maxlength="24" autocomplete="off"></label>
+        <p class="ui-note ui-remove-msg"></p>
+        <div class="ui-row">
+          <button class="ui-remove-nuke" type="button">☢ Request removal</button>
+          <button class="ui-remove-no main" type="button">No, keep it</button>
+        </div>
+      </div>
       <div class="ui-panel ui-said" hidden>
         <h2>What people said</h2>
         <p class="ui-note ui-said-title"></p>
@@ -102,7 +114,7 @@ export class UI {
       <div class="ui-bar" hidden></div>
       <div class="ui-toast" hidden></div>`;
     this.q = (s) => el.querySelector(s);
-    this.panels = { menu: this.q('.ui-menu'), settings: this.q('.ui-settings'), levels: this.q('.ui-levels'), shared: this.q('.ui-shared'), rate: this.q('.ui-rate'), said: this.q('.ui-said') };
+    this.panels = { menu: this.q('.ui-menu'), settings: this.q('.ui-settings'), levels: this.q('.ui-levels'), shared: this.q('.ui-shared'), rate: this.q('.ui-rate'), remove: this.q('.ui-remove'), said: this.q('.ui-said') };
     this.bar = this.q('.ui-bar');
     this.hd = this.q('.ui-hd'); this.hdKeys = [];
     // hooks for main.js
@@ -133,6 +145,14 @@ export class UI {
       this.on.rateSend?.({ stars: this.stars, name: this.q('.ui-rate-name').value.trim(), comment: this.q('.ui-rate-comment').value.trim() });
     });
     this.q('.ui-rate-skip').addEventListener('click', () => { this.close(); this.on.rateSkip?.(); });
+    // asking for a level to come down: the red button wants two taps
+    const nuke = this.q('.ui-remove-nuke');
+    nuke.addEventListener('click', () => {
+      if (!this.nukeArmed) { this.armNuke(true); return; }
+      this.armNuke(false);
+      this.on.removeSend?.({ why: this.q('.ui-remove-why').value.trim(), who: this.q('.ui-remove-who').value.trim() });
+    });
+    this.q('.ui-remove-no').addEventListener('click', () => { this.armNuke(false); this.close(); });
     // keep taps on the menus off the game
     for (const ev of ['pointerdown', 'pointerup', 'pointermove']) {
       for (const n of [this.q('.ui-gear'), this.q('.ui-menu-btn'), ...Object.values(this.panels), this.bar]) n.addEventListener(ev, (e) => e.stopPropagation());
@@ -242,6 +262,25 @@ export class UI {
     this.rateMessage('');
     this.setStars(stars);
     this.open('rate');
+  }
+  /** The "are you sure?" card for asking a shared level to come down. */
+  showRemove(title, who = '') {
+    this.q('.ui-remove-title').textContent = title;
+    this.q('.ui-remove-why').value = '';
+    this.q('.ui-remove-who').value = who;
+    this.removeMessage('');
+    this.armNuke(false);
+    this.open('remove');
+  }
+  removeMessage(msg) { this.q('.ui-remove-msg').textContent = msg; }
+  /** The red button: tap once to arm it (it stands down after a few seconds), tap again to go. */
+  armNuke(on) {
+    clearTimeout(this.nukeTimer);
+    this.nukeArmed = on;
+    const b = this.q('.ui-remove-nuke');
+    b.classList.toggle('armed', on);
+    b.textContent = on ? 'TAP AGAIN TO BE SURE' : '☢ Request removal';
+    if (on) this.nukeTimer = setTimeout(() => this.armNuke(false), 4000);
   }
   setStars(n) {
     this.stars = n;

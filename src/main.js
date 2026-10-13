@@ -194,6 +194,7 @@ function main() {
     if (canWatch(c)) bar.push(['Watch how', () => startLevel(true)]);
     if (c.kind === 'shared' && c.stats?.comments) bar.push([`What people said (${c.stats.comments})`, () => showSaid(c)]);
     if (c.kind === 'shared') bar.push(['Make my own version', () => { mode = 'editor'; ui.showBar([]); editor.remix(c.spec); }]);
+    if (c.kind === 'shared') bar.push(['Ask to remove', () => askRemoval(c)]);
     bar.push([c.kind === 'editor' ? 'Back to editor' : c.kind === 'shared' ? 'Our levels' : 'Title', leaveCustom]);
     ui.showBar(bar);
   }
@@ -251,6 +252,19 @@ function main() {
         if (custom === c && mode === 'result') customResult(true);
         ui.toast(said === 'pending' ? 'Thanks! Your comment will show once it’s checked.' : 'Thanks for the stars!');
       } catch (err) { ui.rateMessage(err.message); }
+    };
+  }
+
+  /** Anyone can ask for a shared level to be taken down: the approver gets a message and decides. */
+  function askRemoval(c) {
+    ui.showRemove(`${c.spec.name || 'This level'} by ${c.spec.author || 'someone'}`, shared.author());
+    ui.on.removeSend = async ({ why, who }) => {
+      ui.removeMessage('Sending…');
+      try {
+        await shared.askRemoval(c.code, why, who);
+        ui.close();
+        ui.toast('Sent. It will come down once it’s been looked at.');
+      } catch (err) { ui.removeMessage(err.message); }
     };
   }
 

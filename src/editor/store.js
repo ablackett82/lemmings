@@ -78,6 +78,11 @@ export function publish(spec, preview) {
   });
 }
 
+/** Asks for a shared level to be taken down: the approver gets a message and decides. */
+export const askRemoval = (code, reason, who) => call(`/api/levels/${encodeURIComponent(code)}/removal`, {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reason, who }),
+});
+
 /** How a published level is getting on: { status: 'pending' | 'approved' | 'rejected' | 'gone', stats? }, or null offline. */
 export async function status(code) {
   try {
