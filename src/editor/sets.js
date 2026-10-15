@@ -5,6 +5,8 @@
 // its texture from, and the exit's top (an object of its own in the files,
 // which the original levels always put at the same place over the exit).
 
+import { WORLD_W, WORLD_H } from '../game/engine.js';
+
 export const SETS = [
   { name: 'Dirt',    steel: [23, 24, 25, 26],  lumps: [0, 1, 2, 3, 10, 19, 20, 27],  texture: 10,  exitTop: [7, -8] },
   { name: 'Fire',    steel: [12, 13, 14, 15],  lumps: [9, 10, 16, 17, 18],           texture: 16, exitTop: [6, -24] },
@@ -31,6 +33,9 @@ export function texture(dos, setNo) {
   const img = new Uint8Array(r.w * r.h);
   for (let j = 0; j < r.h; j++) for (let i = 0; i < r.w; i++) img[j * r.w + i] = p.img[(r.y + j) * p.w + r.x + i];
   t = { w: r.w, h: r.h, img };
+  // worked out once for the whole world: painting looks it up per pixel, many times over
+  t.world = new Uint8Array(WORLD_W * WORLD_H);
+  for (let y = 0; y < WORLD_H; y++) for (let x = 0; x < WORLD_W; x++) t.world[y * WORLD_W + x] = texel(t, x, y);
   textures.set(set, t);
   return t;
 }
@@ -39,9 +44,10 @@ export function texture(dos, setNo) {
  * The texture's colour (0..7) at a world pixel. The world is split into
  * irregular patches (each pixel belongs to the nearest of a scatter of
  * points), and each patch shows the texture from a different place, so it
- * doesn't repeat in an obvious pattern.
+ * doesn't repeat in an obvious pattern. (Slow: texture().world has it for
+ * every pixel.)
  */
-export function texel(t, x, y) {
+function texel(t, x, y) {
   const C = 22, cx = Math.floor(x / C), cy = Math.floor(y / C);
   let best = Infinity, ox = 0, oy = 0;
   for (let j = cy - 1; j <= cy + 1; j++) for (let i = cx - 1; i <= cx + 1; i++) {

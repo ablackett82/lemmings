@@ -9,7 +9,7 @@
 
 import { Game, Lemming, WORLD_W, WORLD_H } from '../game/engine.js';
 import { BRICK, drawPiece, levelPalette } from '../dos/dosdata.js';
-import { SETS, texture, texel } from './sets.js';
+import { SETS, texture } from './sets.js';
 
 export const STAMPS = ['build', 'bash', 'mine', 'dig', 'bomb'];
 const SKILL = { build: 'building', bash: 'bashing', mine: 'mining', dig: 'digging' };
@@ -84,7 +84,7 @@ export function buildCustom(spec, dos) {
         break;
       }
       case 'paint': case 'erase':
-        box = brush(pix, it, it.k === 'erase' ? () => 0 : (x, y) => 8 + texel(tex, x, y));
+        box = brush(pix, it, tex);
         break;
       case 'stamp': {
         const r = stamp(pix, it, steel, dos, palette);
@@ -123,17 +123,23 @@ export function buildCustom(spec, dos) {
   return { level, boxes, ends };
 }
 
-/** A brush stroke: discs of radius r along the points. Returns its bounds. */
-function brush(pix, { r, pts }, colour) {
+/**
+ * A brush stroke ({ k: 'paint'|'erase', r, pts }): discs of radius r along the
+ * points, from point `from` on (the editor paints a stroke as it's drawn, a
+ * bit at a time: from the last point it painted). Returns the bounds of what
+ * it painted.
+ */
+export function brush(pix, { k, r, pts }, tex, from = 0) {
+  const erase = k === 'erase', world = tex.world;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   const disc = (cx, cy) => {
     for (let y = Math.max(0, Math.ceil(cy - r)); y <= Math.min(WORLD_H - 1, Math.floor(cy + r)); y++) {
       for (let x = Math.max(0, Math.ceil(cx - r)); x <= Math.min(WORLD_W - 1, Math.floor(cx + r)); x++) {
-        if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) pix[y * WORLD_W + x] = colour(x, y);
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) pix[y * WORLD_W + x] = erase ? 0 : 8 + world[y * WORLD_W + x];
       }
     }
   };
-  for (let i = 0; i < pts.length; i++) {
+  for (let i = Math.max(0, from); i < pts.length; i++) {
     const [ax, ay] = pts[i], [bx, by] = pts[i + 1] ?? pts[i];
     const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / Math.max(1, r / 2)));
     for (let k = 0; k < n; k++) disc(ax + (bx - ax) * k / n, ay + (by - ay) * k / n);
@@ -184,18 +190,24 @@ function stamp(pix, it, steel, dos, palette) {
 
 /**
  * The whole level as RGBA (WORLD_W x WORLD_H): the objects at their first
- * frame, behind and in front of the terrain as the game draws them.
+ * frame, behind and in front of the terrain as the game draws them. With a
+ * rect ({x, y, w, h}), only that part of out is redrawn.
  */
-export function drawLevel(level, pix = level.terrain, out = new Uint8ClampedArray(WORLD_W * WORLD_H * 4)) {
-  out.fill(0);
-  for (let i = 3; i < out.length; i += 4) out[i] = 255;
+export function drawLevel(level, pix = level.terrain, out = new Uint8ClampedArray(WORLD_W * WORLD_H * 4), rect = null) {
+  const rx0 = Math.max(0, rect ? rect.x : 0), ry0 = Math.max(0, rect ? rect.y : 0);
+  const rx1 = Math.min(WORLD_W, rect ? rect.x + rect.w : WORLD_W), ry1 = Math.min(WORLD_H, rect ? rect.y + rect.h : WORLD_H);
+  if (rx0 >= rx1 || ry0 >= ry1) return out;
+  for (let y = ry0; y < ry1; y++) {
+    for (let k = (y * WORLD_W + rx0) * 4, end = (y * WORLD_W + rx1) * 4; k < end; k += 4) { out[k] = out[k + 1] = out[k + 2] = 0; out[k + 3] = 255; }
+  }
   const put = (x, y, r, g, b) => {
-    if (x < 0 || y < 0 || x >= WORLD_W || y >= WORLD_H) return;
+    if (x < rx0 || y < ry0 || x >= rx1 || y >= ry1) return;
     const k = (y * WORLD_W + x) * 4;
     out[k] = r; out[k + 1] = g; out[k + 2] = b;
   };
   const obj = (o) => {
     const p = o.def.draw(o.def.startFrame ?? 0);
+    if (o.x >= rx1 || o.y >= ry1 || o.x + p.w <= rx0 || o.y + p.h <= ry0) return;
     for (let j = 0; j < p.h; j++) for (let i = 0; i < p.w; i++) {
       const k = (j * p.w + i) * 4, X = o.x + i, Y = o.y + j;
       if (!p.data[k + 3]) continue;
@@ -205,11 +217,13 @@ export function drawLevel(level, pix = level.terrain, out = new Uint8ClampedArra
   };
   for (const o of level.objects) if (!o.front) obj(o);
   const pal = level.palette;
-  for (let i = 0; i < pix.length; i++) {
-    const c = pix[i];
-    if (!c) continue;
-    const k = i * 4, col = pal[c];
-    out[k] = col[0]; out[k + 1] = col[1]; out[k + 2] = col[2];
+  for (let y = ry0; y < ry1; y++) {
+    for (let i = y * WORLD_W + rx0, end = y * WORLD_W + rx1; i < end; i++) {
+      const c = pix[i];
+      if (!c) continue;
+      const k = i * 4, col = pal[c];
+      out[k] = col[0]; out[k + 1] = col[1]; out[k + 2] = col[2];
+    }
   }
   for (const o of level.objects) if (o.front) obj(o);
   return out;

@@ -18,9 +18,10 @@
 
 import { WORLD_W, WORLD_H, SKILLS } from '../game/engine.js';
 import { hdIcon, HD_LABELS } from '../render/hdicons.js';
-import { buildCustom, drawLevel, objectKinds, standY } from './build.js';
+import { buildCustom, drawLevel, objectKinds, standY, brush } from './build.js';
 import { ghostRun, falls, SAFE_DROP } from './analyse.js';
-import { SETS } from './sets.js';
+import { SETS, texture } from './sets.js';
+import { drawPiece } from '../dos/dosdata.js';
 import { newLevel, playKey, LIMITS, check } from './format.js';
 import * as store from './store.js';
 
@@ -289,6 +290,25 @@ export class Editor {
     this.wimg.data.set(rgba);
     this.wctx.putImageData(this.wimg, 0, 0);
     if (!this.analysis) this.analyse();
+  }
+
+  /**
+   * Mid-stroke, just the new bit: painted onto the built level and redrawn
+   * there. It goes on top of everything, so that's what a rebuild would make;
+   * the rebuild (and the trails and falls) wait for the finger to lift.
+   */
+  strokeMore(it, from) {
+    const lv = this.built.level;
+    let box;
+    if (it.k === 'piece') {
+      const p = this.dos.set(this.spec.set).pieces[it.p];
+      drawPiece(lv.terrain, p, it.x, it.y, { flipV: it.fv, flipH: it.fh });
+      box = { x: it.x, y: it.y, w: p.w, h: p.h };
+    } else box = brush(lv.terrain, it, texture(this.dos, this.spec.set), from);
+    if (!(box.w > 0 && box.h > 0)) return;
+    drawLevel(lv, lv.terrain, this.wimg.data, box);
+    this.wctx.putImageData(this.wimg, 0, 0, box.x, box.y, box.w, box.h);
+    this.draw();
   }
 
   analyse() {
@@ -905,7 +925,7 @@ export class Editor {
       else {
         g.item = { k: tool === 'paint' ? 'paint' : 'erase', r: this.opts[tool], pts: [[Math.round(w.x), Math.round(w.y)]] };
         this.spec.terrain.push(g.item);
-        this.changed();
+        this.strokeMore(g.item, 0);
       }
       return g;
     }
@@ -946,7 +966,7 @@ export class Editor {
       if (g.lumps) this.addLump(g, w);
       else {
         const last = g.item.pts.at(-1), x = Math.round(w.x), y = Math.round(w.y);
-        if (Math.hypot(x - last[0], y - last[1]) >= Math.max(1, g.item.r / 3)) { g.item.pts.push([x, y]); this.changed(); }
+        if (Math.hypot(x - last[0], y - last[1]) >= Math.max(1, g.item.r / 3)) { g.item.pts.push([x, y]); this.strokeMore(g.item, g.item.pts.length - 2); }
       }
     }
   }
@@ -1038,7 +1058,7 @@ export class Editor {
     this.spec.terrain.push(it);
     g.lumps.push(it);
     g.last = { x: w.x, y: w.y, gap: Math.max(6, Math.min(p.w, p.h) * 0.45) };
-    this.changed();
+    this.strokeMore(it);
   }
 
   key(e) {
