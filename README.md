@@ -171,9 +171,13 @@ and an approve link), then shows in **Our levels** for everyone, with
 ## Hosting
 
 GitHub Pages serves this repo's `master` branch (root folder) at
-`https://ablackett82.github.io/lemmings/`; pushing is the deploy. The arcade
-(its own repo, `https://ablackett82.github.io/arcade/`) lists Lemmings in its
-`games.js` and loads it from there, so it needs no change when the game does.
+`https://ablackett82.github.io/lemmings/`; pushing is the deploy of that
+standalone copy.
+
+The game is also in the Arcade (its own repo, `ablackett82/arcade`, a sibling
+folder of this one), which keeps its own **copy** in `games/lemmings/`. After
+pushing here, go to the arcade and run `npm run sync`, then commit and push
+there: the arcade doesn't pick up changes by itself.
 
 ## Develop
 
