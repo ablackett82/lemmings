@@ -2,7 +2,7 @@
 // and the controls. The game runs at the DOS speed (an iteration every 60 ms)
 // and is drawn every frame. Settings, cheats and which levels are done are
 // kept in localStorage.
-import { Game, SKILLS, WORLD_W } from './game/engine.js';
+import { Game, SKILLS, WORLD_W, DOM } from './game/engine.js';
 import { buildLevel } from './game/level.js';
 import { LEVELS } from './game/levels.js';
 import { TITLE_LEVEL } from './game/title.js';
@@ -23,7 +23,7 @@ const ITER_MS = 60;
 const STORE = 'lemmings.';
 const CHEATS = CHEAT_LIST.map(([k]) => k);
 // pack: which levels, 'dos' (the original 120, from the player's own game files) or 'new'
-const DEFAULTS = { speed: 1, music: true, sound: true, smartPick: true, bigButtons: false, pack: 'dos', ...Object.fromEntries(CHEATS.map((k) => [k, false])) };
+const DEFAULTS = { speed: 1, music: true, sound: true, smartPick: true, steelAssign: true, bigButtons: false, pack: 'dos', ...Object.fromEntries(CHEATS.map((k) => [k, false])) };
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem(STORE + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -86,7 +86,7 @@ function main() {
   }
   function applyAssist() {
     if (!g) return;
-    for (const k of ['unlimitedSkills', 'noTimeLimit', 'safeFalls', 'saveOne']) g.assist[k] = opts[k];
+    for (const k of ['unlimitedSkills', 'noTimeLimit', 'safeFalls', 'saveOne', 'steelAssign']) g.assist[k] = opts[k];
   }
   // Like the original's rating signs, level 1 of every rating is open from the start.
   const isOpen = (i) => opts.allLevels || i === 0 || done.has(i) || done.has(i - 1)
@@ -405,7 +405,9 @@ function main() {
     if (paused && !opts.pauseAssign) return;
     if (custom?.player) return; // watching
     const { L, ok } = pick(px, py, touch);
-    if (!L || !ok) return;
+    if (!L) return;
+    // the dink: a lemming that couldn't be given it because of the steel
+    if (!ok) { if (['basher', 'miner'].includes(selected) && (L.objInFront === DOM.STEEL || (selected === 'miner' && L.objBelow === DOM.STEEL))) sound.play(['steel']); return; }
     g.assign(selected, L);
     custom?.rec?.assign(g, selected, L);
     sound.play(['assign']);

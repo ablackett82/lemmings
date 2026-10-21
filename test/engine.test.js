@@ -161,10 +161,12 @@ test('a basher tunnels through a wall and walks on when it runs out', () => {
   assert.ok(g.hasPixel(75, 85), 'roof left');
 });
 
-test("a basher can't be given the skill facing steel", () => {
+test("a basher can't be given the skill facing steel (the original's rule; a setting lets it)", () => {
   const { g, L } = setup([floor(), ['steel', 56, 68, 32, 32]]);
   g.step();
   assert.equal(L.objInFront, DOM.STEEL);
+  assert.equal(g.canAssign('basher', L, null), L, 'allowed by default');
+  g.assist.steelAssign = false;
   assert.equal(g.canAssign('basher', L, null), null);
 });
 

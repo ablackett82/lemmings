@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadDosFolder } from '../tools/dosshot.mjs';
-import { Game, WORLD_W } from '../src/game/engine.js';
+import { Game, WORLD_W, DOM } from '../src/game/engine.js';
 import { buildCustom, standY } from '../src/editor/build.js';
 import { newLevel, check, playKey } from '../src/editor/format.js';
 import { SETS } from '../src/editor/sets.js';
@@ -240,4 +240,18 @@ test('a steel piece\'s steel is its solid part (new levels), or its whole pictur
   const fire = (flags) => level([{ k: 'piece', p: 14, x: 100, y: 50, ...flags }], [], { set: 1 }).level.steel[0];
   assert.deepEqual(fire({}), { x: 100, y: 61, w: 25, h: 14 });
   assert.deepEqual(fire({ fv: true }), { x: 100, y: 50, w: 25, h: 14 }, 'upside down: the empty part is at the bottom');
+});
+
+test('a basher or miner can be given next to steel (it stops there), unless that setting is off', () => {
+  const run = (assist) => {
+    const spec = { ...newLevel(0), terrain: [{ k: 'paint', r: 1, pts: [[0, 140], [600, 140]] }, { k: 'piece', p: 23, x: 150, y: 116 }], objects: [{ id: 1, x: 100, y: 70 }, { id: 0, x: 480, y: 130 }] };
+    const g = new Game(buildCustom(check(spec), dos).level, { unlimitedSkills: true, ...assist });
+    for (let t = 0; t < 2000 && !g.lemmings.length; t++) g.step();
+    const L = g.lemmings[0];
+    for (let t = 0; t < 500 && !(L.action === 'walking' && L.objInFront === DOM.STEEL); t++) g.step();
+    assert.equal(L.objInFront, DOM.STEEL, 'walked up to the steel');
+    return ['basher', 'miner'].map((s) => g.canAssign(s, L, null) === L);
+  };
+  assert.deepEqual(run({}), [true, true]);
+  assert.deepEqual(run({ steelAssign: false }), [false, false]);
 });

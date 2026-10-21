@@ -55,6 +55,10 @@ Settings and cheats (the cog):
 
 - Game speed: Normal, Slow (75%), Very slow (50%)
 - Music, sound effects, smart tap
+- Bashers and miners can start next to steel (on by default; they stop at it
+  with the usual clink). Off, they're refused there, as in the original; a
+  refused tap plays the steel clink either way. Not a cheat: recorded wins
+  replay the same either way.
 - Accessibility: clear buttons, a sharp picture of a lemming doing each
   skill with its name under it, over the pixel-art buttons
   (`src/render/hdicons.js`)

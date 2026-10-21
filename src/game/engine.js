@@ -77,6 +77,7 @@ export const DEFAULT_ASSIST = {
   noTimeLimit: false,     // the clock never runs out
   safeFalls: false,       // no fall is too far
   saveOne: false,         // saving one lemming passes the level
+  steelAssign: true,      // basher and miner can start next to steel (they stop at it); off: refused, as in the original
 };
 
 export class Lemming {
@@ -687,15 +688,15 @@ export class Game {
       case 'basher': {
         const L = pick(['walking', 'shrugging', 'building', 'mining', 'digging']);
         if (!L) return null;
-        if (L.objInFront === DOM.STEEL) return null;
+        if (!this.assist.steelAssign && L.objInFront === DOM.STEEL) return null;
         if ((L.objInFront === DOM.ONEWAYLEFT && L.dx !== -1) || (L.objInFront === DOM.ONEWAYRIGHT && L.dx !== 1)) return null;
         return L;
       }
       case 'miner': {
         const L = pick(['walking', 'shrugging', 'building', 'bashing', 'digging']);
         if (!L) return null;
-        if (L.objInFront === DOM.STEEL) return null;
-        if (L.objBelow === DOM.STEEL || (L.objInFront === DOM.ONEWAYLEFT && L.dx !== -1) || (L.objInFront === DOM.ONEWAYRIGHT && L.dx !== 1)) return null;
+        if (!this.assist.steelAssign && (L.objInFront === DOM.STEEL || L.objBelow === DOM.STEEL)) return null;
+        if ((L.objInFront === DOM.ONEWAYLEFT && L.dx !== -1) || (L.objInFront === DOM.ONEWAYRIGHT && L.dx !== 1)) return null;
         return L;
       }
       case 'digger':

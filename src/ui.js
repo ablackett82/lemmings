@@ -51,6 +51,7 @@ export class UI {
         <label><input data-opt="music" type="checkbox"> Music</label>
         <label><input data-opt="sound" type="checkbox"> Sound effects</label>
         <label><input data-opt="smartPick" type="checkbox"> Smart tap (gives the skill to the lemming that can use it)</label>
+        <label><input data-opt="steelAssign" type="checkbox"> Bashers and miners can start next to steel (they stop at it; off: refused, as in the original)</label>
         <h3>Accessibility</h3>
         <label><input data-opt="bigButtons" type="checkbox"> Clear buttons (a picture of each skill, with its name)</label>
         <h3>Original game</h3>
