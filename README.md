@@ -117,7 +117,14 @@ Crystal): its own terrain pieces and objects, so it looks like an original.
 
 - **Pieces**: any of the set's pieces; tap to place, drag to move, then
   mirror, flip, put behind, or make it cut its shape out. The steel ones
-  (marked) are steel.
+  (marked) bring a steel area of their own, grouped with them.
+- **Steel**: ground lemmings can't dig, bash or mine into. Steel is drawn
+  areas (a `steel` item: x, y, w, h), as in the original files, not a
+  property of pieces: drag a box to make one (on a 4 pixel grid), tap to pick
+  it, drag a corner to resize. It isn't drawn in the game. Levels made before
+  this (no `sv: 2`) took each steel piece as its own area; `upgradeSteel()`
+  (`build.js`) turns those into drawn areas, at once if the level isn't beaten,
+  else on its first change.
 - **Lumps**: draw a line and the set's organic lumps are scattered along it,
   flipped and jumbled, the way the original levels' landscapes are made.
 - **Paint** / **Rubber**: draw ground in the set's texture, or rub it out.
@@ -143,6 +150,12 @@ a drop of up to 63 (the game's 60, counted its way), and close ones get a red
 mark at the limit. Two fingers pan and pinch; undo and redo; the arrow
 buttons (or keys) nudge one pixel.
 
+**Copy an original level** (on the My levels screen) makes your own editable
+copy of one of the 120 (`import.js`): same pieces, objects, settings and exact
+steel areas, each area grouped with the steel piece it mostly covers. The four
+levels drawn as one full-screen picture (22, 44, 75, 112) can't be copied. A
+test checks the copies build the same ground, steel and settings as the originals.
+
 **▶ Test** plays it. The game is recorded as its inputs (`replay.js`; the
 engine is deterministic), so the pause menu's **Back 5 seconds** replays up
 to then, and a win with no cheats is saved with the level as its proof. Any
@@ -154,6 +167,13 @@ and an approve link), then shows in **Our levels** for everyone, with
 **Watch how** to see its maker's win. A shared level opens straight from
 `?level=CODE`. Levels made on a device are kept in its localStorage
 (`lemmings.mine`).
+
+## Hosting
+
+GitHub Pages serves this repo's `master` branch (root folder) at
+`https://ablackett82.github.io/lemmings/`; pushing is the deploy. The arcade
+(its own repo, `https://ablackett82.github.io/arcade/`) lists Lemmings in its
+`games.js` and loads it from there, so it needs no change when the game does.
 
 ## Develop
 
