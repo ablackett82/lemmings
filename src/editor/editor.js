@@ -18,7 +18,7 @@
 
 import { WORLD_W, WORLD_H, SKILLS } from '../game/engine.js';
 import { hdIcon, HD_LABELS } from '../render/hdicons.js';
-import { buildCustom, drawLevel, objectKinds, standY, brush, upgradeSteel } from './build.js';
+import { buildCustom, drawLevel, objectKinds, standY, brush } from './build.js';
 import { ghostRun, falls, SAFE_DROP } from './analyse.js';
 import { SETS, texture } from './sets.js';
 import { originalSpec } from './import.js';
@@ -27,7 +27,7 @@ import { newLevel, playKey, LIMITS, check } from './format.js';
 import * as store from './store.js';
 
 const TOOLS = [
-  ['move', 'Move'], ['select', 'Select'], ['pieces', 'Pieces'], ['lumps', 'Lumps'], ['paint', 'Paint'], ['rubber', 'Rubber'], ['stamps', 'Stamps'], ['steel', 'Steel'], ['things', 'Things'],
+  ['move', 'Move'], ['select', 'Select'], ['pieces', 'Pieces'], ['lumps', 'Lumps'], ['paint', 'Paint'], ['rubber', 'Rubber'], ['stamps', 'Stamps'], ['things', 'Things'],
 ];
 const STAMP_LIST = [['build', 'builder', 'Stairs'], ['bash', 'basher', 'Bash'], ['mine', 'miner', 'Mine'], ['dig', 'digger', 'Dig'], ['bomb', 'bomber', 'Bomb']];
 const THING_NAMES = { entrance: 'Entrance', exit: 'Exit', water: 'Water', fire: 'Fire', trap: 'Trap', left: 'One way ←', right: 'One way →', deco: 'Decoration' };
@@ -267,8 +267,6 @@ export class Editor {
     const e = store.getMine(id);
     if (!e || !this.dos) return;
     this.entry = { ...e, spec: check(e.spec) };
-    // an older level's steel becomes drawn steel (at once if not beaten; a beaten one waits for its first change, which means beating it again anyway)
-    if (!this.proved(this.spec)) upgradeSteel(this.spec, this.dos);
     this.undoStack = []; this.redoStack = [];
     this.setAll([]);
     this.root.hidden = false;
@@ -416,19 +414,9 @@ export class Editor {
     const [ax, ay] = S(0, 0), [bx, by] = S(WORLD_W, WORLD_H);
     c.strokeRect(ax - 0.5, ay - 0.5, bx - ax + 1, by - ay + 1);
     // steel, faintly
-    const steelTool = this.tool === 'steel';
-    c.strokeStyle = steelTool ? 'rgba(140,190,255,0.9)' : 'rgba(160,170,200,0.45)'; c.fillStyle = 'rgba(110,160,255,0.2)'; c.lineWidth = 1; c.setLineDash([3, 3]);
-    for (const s of this.built.level.steel) {
-      const [x0, y0] = S(s.x, s.y);
-      if (steelTool) c.fillRect(x0, y0, s.w * z, s.h * z);
-      c.strokeRect(x0, y0, s.w * z, s.h * z);
-    }
+    c.strokeStyle = 'rgba(160,170,200,0.45)'; c.setLineDash([3, 3]);
+    for (const s of this.built.level.steel) { const [x0, y0] = S(s.x, s.y); c.strokeRect(x0, y0, s.w * z, s.h * z); }
     c.setLineDash([]);
-    if (this.draft) {
-      const d = this.draft, [dx, dy] = S(d.x, d.y);
-      c.fillStyle = 'rgba(110,160,255,0.3)'; c.fillRect(dx, dy, d.w * z, d.h * z);
-      c.strokeStyle = '#8cbeff'; c.lineWidth = 1.5; c.strokeRect(dx, dy, d.w * z, d.h * z);
-    }
 
     const an = this.analysis;
     if (an && this.show.trails) {
@@ -493,11 +481,6 @@ export class Editor {
       const [x0, y0] = S(box.x, box.y);
       c.strokeStyle = '#000'; c.lineWidth = 3; c.strokeRect(x0 - 1, y0 - 1, box.w * z + 2, box.h * z + 2);
       c.strokeStyle = grouped ? '#4ad8ff' : '#ffe14a'; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.strokeRect(x0 - 1, y0 - 1, box.w * z + 2, box.h * z + 2); c.setLineDash([]);
-    }
-    for (const [hx, hy] of this.steelHandles()) {
-      const [px, py] = S(hx, hy);
-      c.fillStyle = '#8cbeff'; c.strokeStyle = '#000'; c.lineWidth = 1.5;
-      c.fillRect(px - 6, py - 6, 12, 12); c.strokeRect(px - 6, py - 6, 12, 12);
     }
     if (this.marquee) {
       const m = this.marquee, [ax2, ay2] = S(Math.min(m.x0, m.x1), Math.min(m.y0, m.y1));
@@ -566,17 +549,15 @@ export class Editor {
   hit(x, y) {
     const set = this.dos.set(this.spec.set);
     const inBox = (b) => b && x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
-    const tests = [], steelTool = this.tool === 'steel';
+    const tests = [];
     for (let i = this.spec.objects.length - 1; i >= 0; i--) {
       const o = this.spec.objects[i], d = set.objects[o.id];
-      tests.push({ t: 'object', i, ok: !steelTool && d && inBox({ x: o.x, y: o.y, w: d.w, h: d.h }) });
+      tests.push({ t: 'object', i, ok: d && inBox({ x: o.x, y: o.y, w: d.w, h: d.h }) });
     }
     const hidden = [];
     for (let i = this.spec.terrain.length - 1; i >= 0; i--) {
       const it = this.spec.terrain[i], b = this.built.boxes[i];
       if (!inBox(b)) continue;
-      // steel areas are picked in the Steel tool, or when nothing else is under the finger
-      if (steelTool !== (it.k === 'steel')) { if (it.k === 'steel') hidden.push({ t: 'terrain', i, ok: true }); continue; }
       let ok = true;
       if (it.k === 'piece') {
         const p = set.pieces[it.p];
@@ -592,13 +573,6 @@ export class Editor {
     const cur = this.sel && [...tests, ...hidden].find((h) => h.ok && this.isSel(h.t, h.i));
     const hit = cur ?? tests.find((h) => h.ok) ?? hidden[0];
     return hit ? { t: hit.t, i: hit.i } : null;
-  }
-
-  /** The corners of the picked steel area, if just one steel area is picked: [x, y, which] (which: the corner, as -1 or 1 either way across). */
-  steelHandles() {
-    const it = this.item();
-    if (!it || it.k !== 'steel' || this.more.length) return [];
-    return [[it.x, it.y, 0, 0], [it.x + it.w, it.y, 1, 0], [it.x, it.y + it.h, 0, 1], [it.x + it.w, it.y + it.h, 1, 1]];
   }
 
   item(sel = this.sel) { return sel && (sel.t === 'object' ? this.spec.objects[sel.i] : this.spec.terrain[sel.i]); }
@@ -621,7 +595,7 @@ export class Editor {
 
   snapshot(quiet = false) {
     // first change to a beaten level: say it'll need beating again (not for grouping, which doesn't change how it plays)
-    if (!quiet) { this.warnBeaten(); upgradeSteel(this.spec, this.dos); }
+    if (!quiet) this.warnBeaten();
     const { proof, ...rest } = this.spec;
     this.undoStack.push(JSON.stringify(rest));
     if (this.undoStack.length > 100) this.undoStack.shift();
@@ -684,7 +658,7 @@ export class Editor {
       const s = dos.set(set), steel = new Set(SETS[set].steel);
       t.innerHTML = `<div class="ed-strip">${s.pieces.map((p, i) => p ? `<button type="button" data-piece="${i}" class="${this.opts.piece === i ? 'on' : ''}"><img alt="" src="${this.pieceThumb(i)}">${steel.has(i) ? '<span class="ed-steel">STEEL</span>' : ''}</button>` : '').join('')}</div>`;
       for (const b of t.querySelectorAll('[data-piece]')) b.addEventListener('click', () => { this.opts.piece = +b.dataset.piece; this.trayFor('pieces'); });
-      if (this.opts.piece === null) t.insertAdjacentHTML('afterbegin', '<p class="ed-hint">Pick a piece, then tap the level to put it there. The ones marked STEEL can’t be dug into.</p>');
+      if (this.opts.piece === null) t.insertAdjacentHTML('afterbegin', '<p class="ed-hint">Pick a piece, then tap the level to put it there.</p>');
     } else if (tool === 'lumps') {
       t.innerHTML = `<div class="ed-row"><span class="ed-hint">Draw with your finger: lumps of ${SETS[set].name.toLowerCase()} go down along the line.</span>
         ${[['small', 'Small'], ['mixed', 'Mixed'], ['big', 'Big']].map(([k, l]) => `<button type="button" data-lump="${k}" class="${this.opts.lump === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
@@ -702,8 +676,6 @@ export class Editor {
         <span class="ed-hint">Tap where a lemming would stand. Tap the top of a staircase to add another.</span></div>`;
       for (const b of t.querySelectorAll('[data-stamp]')) b.addEventListener('click', () => { this.opts.stamp = b.dataset.stamp; this.trayFor('stamps'); });
       for (const b of t.querySelectorAll('[data-dir]')) b.addEventListener('click', () => { this.opts.dir = +b.dataset.dir; this.trayFor('stamps'); });
-    } else if (tool === 'steel') {
-      t.innerHTML = '<p class="ed-hint">Steel is the ground lemmings can’t dig, bash or mine into. Drag a box over the ground to make some (you can’t see it in the game). Tap one to pick it, drag it to move it, and drag a corner to resize it. Pieces marked STEEL bring their own, and take it with them. Two fingers to look around.</p>';
     } else if (tool === 'things') {
       const kinds = objectKinds(dos, set);
       t.innerHTML = `<div class="ed-strip">${kinds.map((k) => `<button type="button" data-thing="${k.id}" class="${this.opts.thing === k.id ? 'on' : ''}"><img alt="" src="${this.objectThumb(k.id)}"><span>${THING_NAMES[k.kind]}</span></button>`).join('')}</div>`;
@@ -731,8 +703,6 @@ export class Editor {
       html += b('copy', 'Copy') + b('delete', 'Delete') + b('done', '✓');
     } else if (it.k === 'piece') {
       html += b('fh', '↔ Mirror', it.fh) + b('fv', '↕ Flip', it.fv) + b('behind', 'Behind', it.behind, 'Only fills where there’s nothing yet') + b('erase', 'Cut', it.erase, 'Cuts its shape out instead');
-    } else if (it.k === 'steel') {
-      html += `<span class="ed-n">Steel ${it.w}×${it.h}</span>`;
     } else if (it.k === 'stamp') {
       html += b('dir', it.dir < 0 ? '← Left' : 'Right →', false, 'Which way');
       if (it.s === 'build') html += b('less', '−', false, 'Fewer staircases') + `<span class="ed-n">${it.n ?? 1}</span>` + b('more', '+', false, 'Another staircase');
@@ -740,7 +710,7 @@ export class Editor {
       html += b('fv', '↕ Flip', it.fv) + b('behind', 'Behind', it.behind, 'Behind the ground');
     }
     if (list.length === 1) {
-      if (this.sel.t === 'terrain' && it.k !== 'steel') html += b('front', 'To front') + b('back', 'To back');
+      if (this.sel.t === 'terrain') html += b('front', 'To front') + b('back', 'To back');
       html += b('copy', 'Copy') + b('delete', 'Delete') + b('done', '✓');
     }
     sb.innerHTML = html;
@@ -872,7 +842,7 @@ export class Editor {
         if (horizontal) { it.x = lo + hi - 1 - it.x; it.dir = -it.dir; } else stuck++;
       } else if (horizontal) {
         it.x = lo + hi - (it.x + b.w);
-        if (it.k === 'steel') { /* just moved across */ } else if (it.k === 'piece') { if (it.fh) delete it.fh; else it.fh = true; }
+        if (it.k === 'piece') { if (it.fh) delete it.fh; else it.fh = true; }
         else {
           const k = kinds.find((m) => m.id === it.id), flip = k && { left: 'right', right: 'left' }[k.kind];
           const other = flip && kinds.find((m) => m.kind === flip && m.w === k.w && m.h === k.h);
@@ -880,7 +850,7 @@ export class Editor {
         }
       } else {
         it.y = lo + hi - (it.y + b.h);
-        if (it.k !== 'steel') { if (it.fv) delete it.fv; else it.fv = true; }
+        if (it.fv) delete it.fv; else it.fv = true;
       }
     }
     if (objects) this.toast('Turned them round, but things like exits can only be moved across, not mirrored.');
@@ -996,15 +966,11 @@ export class Editor {
       }
       return g;
     }
-    // a corner of the picked steel area: resize it
-    const corner = (this.tool === 'move' || this.tool === 'steel') && this.steelHandles().find(([hx, hy]) => Math.hypot((hx - w.x) * this.cam.z, (hy - w.y) * this.cam.z) <= (g.touch ? 22 : 12));
-    if (corner) return { ...g, kind: 'resize', corner: corner.slice(2), item: this.item(), snapped: false };
     // on the selected thing (or, moving, on anything): drag it
     const h = this.hit(w.x, w.y);
     const onSel = h && this.isSel(h.t, h.i);
     if (shift && h && tool !== 'stamps') return { ...g, kind: 'tap', hit: h, toggle: true };
-    if (tool === 'steel' && !h) return { ...g, kind: 'steelbox', a: this.snap4(w) };
-    if (onSel || ((tool === 'move' || tool === 'steel') && h)) {
+    if (onSel || (tool === 'move' && h)) {
       if (!onSel) this.select(h);
       return { ...g, kind: 'drag', at: { x: Math.round(w.x), y: Math.round(w.y) }, snapped: false };
     }
@@ -1032,20 +998,6 @@ export class Editor {
       for (const s of this.all()) this.shift(this.item(s), nx - g.at.x, ny - g.at.y);
       g.at = { x: nx, y: ny };
       this.changed();
-    } else if (g.kind === 'steelbox') {
-      if (!g.moved) return;
-      const a = g.a, b = this.snap4(w);
-      this.draft = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
-      this.draw();
-    } else if (g.kind === 'resize') {
-      if (!g.moved) return;
-      if (!g.snapped) { this.snapshot(); g.snapped = true; }
-      const it = g.item, [cx, cy] = g.corner, b = this.snap4(w);
-      // the opposite corner stays where it is; the area is at least 4 across
-      const fx = cx ? it.x : it.x + it.w, fy = cy ? it.y : it.y + it.h;
-      const nx = cx ? Math.max(b.x, fx + 4) : Math.min(b.x, fx - 4), ny = cy ? Math.max(b.y, fy + 4) : Math.min(b.y, fy - 4);
-      it.x = Math.min(nx, fx); it.y = Math.min(ny, fy); it.w = Math.abs(nx - fx); it.h = Math.abs(ny - fy);
-      this.changed();
     } else if (g.kind === 'stroke') {
       this.cursor = w;
       if (g.lumps) this.addLump(g, w);
@@ -1059,15 +1011,7 @@ export class Editor {
   end(g) {
     if (g.kind === 'tap') this.tap(g.w0, g.hit, g.toggle);
     else if (g.kind === 'marquee') { const m = this.marquee; this.marquee = null; if (m) this.pickInside(m); }
-    else if (g.kind === 'steelbox') {
-      const d = this.draft; this.draft = null;
-      if (d && d.w >= 4 && d.h >= 4) {
-        this.snapshot();
-        this.spec.terrain.push({ k: 'steel', ...d });
-        this.setAll([{ t: 'terrain', i: this.spec.terrain.length - 1 }]);
-        this.changed(); this.selection();
-      } else { this.select(null); }
-    } else if (g.kind === 'stroke') {
+    else if (g.kind === 'stroke') {
       if (this.spec.terrain.length === g.count0) this.undoStack.pop();
       this.cursor = null;
       this.changed();
@@ -1082,8 +1026,6 @@ export class Editor {
     if (g.kind === 'stroke') { this.spec.terrain.length = g.count0; this.undoStack.pop(); this.changed(); }
     if (g.kind === 'drag' && g.snapped) this.undo();
     if (g.kind === 'marquee') { this.marquee = null; this.draw(); }
-    if (g.kind === 'steelbox') { this.draft = null; this.draw(); }
-    if (g.kind === 'resize' && g.snapped) this.undo();
   }
 
   /** A tap on the level, with the tool in hand. */
@@ -1095,15 +1037,8 @@ export class Editor {
       if (this.opts.piece === null) { this.toast('Pick a piece first (below).'); return; }
       const p = set.pieces[this.opts.piece];
       this.snapshot();
-      const it = { k: 'piece', p: this.opts.piece, x: x - (p.w >> 1), y: y - (p.h >> 1) };
-      this.spec.terrain.push(it);
+      this.spec.terrain.push({ k: 'piece', p: this.opts.piece, x: x - (p.w >> 1), y: y - (p.h >> 1) });
       this.setAll([{ t: 'terrain', i: this.spec.terrain.length - 1 }]);
-      // a steel piece brings its steel area, grouped with it
-      if (SETS[this.spec.set].steel.includes(this.opts.piece)) {
-        it.g = this.nextGroup();
-        this.spec.terrain.push({ k: 'steel', x: it.x, y: it.y, w: p.w, h: p.h, g: it.g });
-        this.setAll(this.withGroup(this.sel));
-      }
     } else if (this.tool === 'things') {
       if (this.opts.thing === null) { this.toast('Pick one first (below).'); return; }
       const d = set.objects[this.opts.thing];
@@ -1135,9 +1070,6 @@ export class Editor {
     this.changed();
     this.selection();
   }
-
-  /** A world point, to the nearest 4 (steel areas in the original levels are on a 4 pixel grid). */
-  snap4(w) { return { x: Math.round(w.x / 4) * 4, y: Math.round(w.y / 4) * 4 }; }
 
   /** Where a lemming tapped at (x, y) would stand: the ground at or a little below, or (x, y) if there's none. */
   ground(x, y) {

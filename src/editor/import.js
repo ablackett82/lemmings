@@ -2,8 +2,7 @@
 // My levels and changed. The pieces and objects are the ones the file lists,
 // in the same order, so it builds back to the same level. The exceptions: the
 // full-screen-picture levels (null: there are no pieces to edit), and the
-// exits' roofs, which the editor adds to an exit itself. The steel areas become
-// steel items, grouped with the steel piece each mostly covers.
+// exits' roofs, which the editor adds to an exit itself.
 
 import { SKILL_ORDER } from '../dos/dosdata.js';
 import { SETS } from './sets.js';
@@ -32,7 +31,6 @@ export function originalSpec(dos, i) {
     terrain.push(it);
   }
 
-  const steel = [];
   let objects = [];
   for (let k = 0; k < 32; k++) {
     const o = 0x20 + k * 8, flags = be16(raw, o + 6);
@@ -48,27 +46,20 @@ export function originalSpec(dos, i) {
   const exits = objects.filter((o) => set.objects[o.id].effect === 'exit');
   objects = objects.filter((o) => !(o.id === roof && o.behind && exits.some((e) => e.x === o.x && e.y + dy === o.y)));
 
-  // the steel areas, exactly. Each goes with the steel piece it mostly covers (if any), so they move together
-  const steelPieces = new Set(SETS[setNo].steel);
-  const under = terrain.map((it) => ({ it, p: set.pieces[it.p] })).filter(({ it }) => steelPieces.has(it.p) && !it.erase);
-  let g = 0;
+  // the steel areas, exactly (these replace the steel pieces' own)
+  const steel = [];
   for (let k = 0; k < 32; k++) {
     const o = 0x760 + k * 4, pos = be16(raw, o), size = raw[o + 2];
     if (!pos && !size) continue;
-    const r = { k: 'steel', x: (pos >> 7) * 4 - 16, y: (pos & 0x7f) * 4, w: (size >> 4) * 4 + 4, h: (size & 0xf) * 4 + 4 };
-    const overlap = ({ it, p }) => Math.max(0, Math.min(r.x + r.w, it.x + p.w) - Math.max(r.x, it.x)) * Math.max(0, Math.min(r.y + r.h, it.y + p.h) - Math.max(r.y, it.y));
-    const best = under.reduce((m, u) => (overlap(u) > overlap(m) ? u : m), under[0]);
-    if (best && overlap(best) * 2 >= r.w * r.h) r.g = best.it.g ??= ++g;
-    steel.push(r);
+    steel.push({ x: (pos >> 7) * 4 - 16, y: (pos & 0x7f) * 4, w: (size >> 4) * 4 + 4, h: (size & 0xf) * 4 + 4 });
   }
-  terrain.push(...steel);
 
   const w = (k) => be16(stats, k);
   return {
-    v: 1, sv: 2, name: info.name, author: '', set: setNo,
+    v: 1, name: info.name, author: '', set: setNo,
     count: w(2), save: w(4), rate: w(0), time: w(6),
     skills: Object.fromEntries(SKILL_ORDER.map((s, k) => [s, w(8 + k * 2)])),
     start: be16(raw, 0x18),
-    terrain, objects,
+    terrain, objects, steel,
   };
 }
