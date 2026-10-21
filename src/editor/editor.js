@@ -552,13 +552,17 @@ export class Editor {
 
   // ---- undo ---------------------------------------------------------------------
 
+  /** First change to a beaten level: offer the Undo toast, once. */
+  warnBeaten() {
+    if (!this.proved(this.spec) || this.warnedEdit) return;
+    this.warnedEdit = true;
+    const { proof: _p, ...before } = this.spec;
+    this.offerUndo(JSON.stringify(before), this.undoStack.length);
+  }
+
   snapshot(quiet = false) {
     // first change to a beaten level: say it'll need beating again (not for grouping, which doesn't change how it plays)
-    if (!quiet && this.proved(this.spec) && !this.warnedEdit) {
-      this.warnedEdit = true;
-      const { proof: _p, ...before } = this.spec;
-      this.offerUndo(JSON.stringify(before), this.undoStack.length);
-    }
+    if (!quiet) this.warnBeaten();
     const { proof, ...rest } = this.spec;
     this.undoStack.push(JSON.stringify(rest));
     if (this.undoStack.length > 100) this.undoStack.shift();
@@ -1099,7 +1103,9 @@ export class Editor {
     const set = (k, v) => {
       const cur = k.startsWith('skill.') ? s.skills[k.slice(6)] : s[k];
       if (cur === v) return;
-      if (!snapped) { this.snapshot(); snapped = true; }
+      // name and author aren't part of how it plays, so they don't warn "beat it again"
+      const quiet = k === 'name' || k === 'author';
+      if (!snapped) { this.snapshot(quiet); snapped = true; } else if (!quiet) this.warnBeaten();
       if (k.startsWith('skill.')) s.skills[k.slice(6)] = v; else s[k] = v;
     };
     const clampAll = () => {
