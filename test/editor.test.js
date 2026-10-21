@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadDosFolder } from '../tools/dosshot.mjs';
 import { Game, WORLD_W } from '../src/game/engine.js';
-import { buildCustom, standY } from '../src/editor/build.js';
+import { buildCustom, standY, upgradeSteel } from '../src/editor/build.js';
 import { newLevel, check, playKey } from '../src/editor/format.js';
 import { originalSpec } from '../src/editor/import.js';
 import { ghostRun, falls, SAFE_DROP } from '../src/editor/analyse.js';
@@ -64,8 +64,31 @@ test('stamps cut what bashers, miners, diggers and bombs cut, and stop at steel'
   const dig = level([...ground(0, 600, 130), block, { k: 'stamp', s: 'dig', x: 340, y: 100, dir: 1 }], []).level;
   assert.ok(!solid(dig, 340, 110) && solid(dig, 360, 110), 'a hole straight down');
   // steel: piece 23 of the dirt set; a basher stops at it
-  const steel = level([...ground(0, 600, 130), { k: 'piece', p: 23, x: 320, y: 106 }, { k: 'stamp', s: 'bash', x: 250, y: 130, dir: 1 }, block], []).level;
-  assert.ok(steel.steel.length === 1);
+  const steel = level([...ground(0, 600, 130), { k: 'piece', p: 23, x: 320, y: 106 }, { k: 'stamp', s: 'bash', x: 250, y: 130, dir: 1 }, block], [], { sv: undefined }).level;
+  assert.ok(steel.steel.length === 1, 'an older level: a steel piece is its own steel');
+});
+
+test('steel is drawn areas: a piece alone is plain ground, an area stops a stamp wherever it is in the list', () => {
+  const piece = { k: 'piece', p: 23, x: 320, y: 106 }, bash = { k: 'stamp', s: 'bash', x: 250, y: 130, dir: 1 };
+  assert.equal(level([...ground(0, 600, 130), piece], []).level.steel.length, 0);
+  const { level: lv, boxes } = level([...ground(0, 600, 130), bash, { k: 'steel', x: 320, y: 100, w: 40, h: 40 }], []);
+  assert.deepEqual(lv.steel, [{ x: 320, y: 100, w: 40, h: 40 }]);
+  assert.deepEqual(boxes.at(-1), { x: 320, y: 100, w: 40, h: 40 });
+});
+
+test('an older level made into drawn steel plays the same, each area grouped with its piece', () => {
+  const terrain = [...ground(0, 600, 130), { k: 'piece', p: 23, x: 320, y: 106, g: 4 }, { k: 'piece', p: 24, x: 100, y: 90 }, { k: 'piece', p: 25, x: 200, y: 90, erase: true }];
+  const old = { ...newLevel(0), sv: undefined, terrain, objects: [] };
+  const before = buildCustom(check(old), dos).level.steel;
+  const spec = check(old);
+  assert.equal(upgradeSteel(spec, dos), true);
+  assert.equal(spec.sv, 2);
+  assert.deepEqual(buildCustom(spec, dos).level.steel, before);
+  const areas = spec.terrain.filter((it) => it.k === 'steel'), pieces = spec.terrain.filter((it) => it.k === 'piece');
+  assert.equal(areas.length, 2, 'the cut one makes none');
+  assert.equal(areas[0].g, 4, 'a piece already in a group keeps it');
+  assert.equal(areas[1].g, pieces[1].g);
+  assert.equal(upgradeSteel(spec, dos), false);
 });
 
 test('the fall lines agree with the engine about what splats', () => {

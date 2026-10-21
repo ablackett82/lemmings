@@ -60,6 +60,27 @@ function seatExit(pix, d, x, y) {
 }
 
 /**
+ * Makes an older level's steel (an area for each of the set's steel pieces,
+ * worked out as it was built) into drawn steel areas, each grouped with its
+ * piece so they go on moving together. Plays exactly the same. Returns whether it changed anything.
+ */
+export function upgradeSteel(spec, dos) {
+  if (spec.sv === 2) return false;
+  const set = dos.set(spec.set), steelPieces = new Set(SETS[spec.set].steel);
+  let g = Math.max(0, ...[...spec.objects, ...spec.terrain].map((it) => it.g ?? 0));
+  const areas = [];
+  for (const it of spec.terrain) {
+    const p = set.pieces[it.p];
+    if (it.k !== 'piece' || !p || it.erase || !steelPieces.has(it.p)) continue;
+    it.g ??= ++g;
+    areas.push({ k: 'steel', x: it.x, y: it.y, w: p.w, h: p.h, g: it.g });
+  }
+  spec.terrain.push(...areas);
+  spec.sv = 2;
+  return true;
+}
+
+/**
  * spec (see format.js) → { level (for new Game()), boxes: per terrain item
  * its bounds {x, y, w, h}, ends: per stamp where the lemming finished }.
  */
@@ -67,7 +88,9 @@ export function buildCustom(spec, dos) {
   const set = dos.set(spec.set);
   const palette = levelPalette(set.custom);
   const pix = new Uint8Array(WORLD_W * WORLD_H);
-  const steel = spec.steel ? spec.steel.map((r) => ({ ...r })) : [];
+  // steel: drawn areas (sv 2), or, in older levels, one area for each of the set's steel pieces
+  const drawn = spec.sv === 2;
+  const steel = drawn ? spec.terrain.filter((it) => it.k === 'steel').map(({ x, y, w, h }) => ({ x, y, w, h })) : [];
   const steelPieces = new Set(SETS[spec.set].steel);
   const boxes = [], ends = [];
   const tex = texture(dos, spec.set);
@@ -80,9 +103,12 @@ export function buildCustom(spec, dos) {
         if (!p) break;
         drawPiece(pix, p, it.x, it.y, { flipV: it.fv, flipH: it.fh, behind: it.behind, erase: it.erase });
         box = { x: it.x, y: it.y, w: p.w, h: p.h };
-        if (!spec.steel && steelPieces.has(it.p) && !it.erase) steel.push({ ...box });
+        if (!drawn && steelPieces.has(it.p) && !it.erase) steel.push({ ...box });
         break;
       }
+      case 'steel':
+        box = { x: it.x, y: it.y, w: it.w, h: it.h };
+        break;
       case 'paint': case 'erase':
         box = brush(pix, it, tex);
         break;
