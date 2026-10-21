@@ -21,6 +21,7 @@ import { hdIcon, HD_LABELS } from '../render/hdicons.js';
 import { buildCustom, drawLevel, objectKinds, standY, brush } from './build.js';
 import { ghostRun, falls, SAFE_DROP } from './analyse.js';
 import { SETS, texture } from './sets.js';
+import { originalSpec } from './import.js';
 import { drawPiece } from '../dos/dosdata.js';
 import { newLevel, playKey, LIMITS, check } from './format.js';
 import * as store from './store.js';
@@ -70,7 +71,8 @@ export class Editor {
       <div class="ed-home">
         <div class="ed-bar"><button class="ed-back" type="button">‹ Back</button><h2>My levels</h2></div>
         <div class="ed-home-body">
-          <div class="ed-new"><h3>Make a new level</h3><div class="ed-sets"></div></div>
+          <div class="ed-new"><h3>Make a new level</h3><div class="ed-sets"></div>
+            <p class="ed-orig"><button type="button" class="ed-orig-btn">Copy an original level…</button></p></div>
           <h3 class="ed-mine-h">Made on this ${/iPad|iPhone/.test(navigator.userAgent) ? 'iPad' : 'computer'}</h3>
           <div class="ed-mine"></div>
         </div>
@@ -147,6 +149,9 @@ export class Editor {
     sets.innerHTML = dos ? SETS.map((s, i) => `<button type="button" data-set="${i}"><img alt="" src="${this.setPicture(i)}"><span>${s.name}</span></button>`).join('')
       : '<p class="ed-note">Loading the game’s graphics…</p>';
     for (const b of sets.querySelectorAll('[data-set]')) b.addEventListener('click', () => this.create(+b.dataset.set));
+    const orig = this.q('.ed-orig-btn');
+    orig.disabled = !dos;
+    orig.onclick = () => this.pickOriginal();
     this.listMine();
   }
 
@@ -216,6 +221,34 @@ export class Editor {
     store.saveMine(entry);
     this.edit(entry.id);
     this.settings(true);
+  }
+
+  /** Choose one of the original levels to copy into my levels. */
+  pickOriginal() {
+    const dos = this.dos;
+    const groups = [];
+    dos.levels.forEach((l, i) => {
+      let g = groups.find((x) => x.rating === l.rating);
+      if (!g) groups.push(g = { rating: l.rating, items: [] });
+      const picture = !originalSpec(dos, i); // drawn as one picture: nothing to edit
+      g.items.push(`<option value="${i}"${picture ? ' disabled' : ''}>${l.number}. ${esc(l.name)}${picture ? ' (can’t be edited)' : ''}</option>`);
+    });
+    this.dialog.innerHTML = `<h2>Copy an original level</h2>
+      <p>You get your own copy to change. The original stays as it is.</p>
+      <select class="ed-orig-pick">${groups.map((g) => `<optgroup label="${g.rating}">${g.items.join('')}</optgroup>`).join('')}</select>
+      <div class="ed-row ed-end"><button type="button" class="ed-no">Cancel</button><button type="button" class="main ed-yes">Copy it</button></div>`;
+    this.modal.hidden = false;
+    this.dialog.querySelector('.ed-no').addEventListener('click', () => this.closeModal());
+    this.dialog.querySelector('.ed-yes').addEventListener('click', () => {
+      const spec = originalSpec(dos, +this.dialog.querySelector('.ed-orig-pick').value);
+      if (!spec) return;
+      spec.name = `${spec.name} (copy)`.slice(0, 40);
+      spec.author = store.author();
+      const entry = { id: store.newId(), spec };
+      store.saveMine(entry);
+      this.closeModal();
+      this.edit(entry.id);
+    });
   }
 
   /** Copies a level (a shared one, say) into my levels and opens it. */

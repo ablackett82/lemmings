@@ -29,7 +29,7 @@ export const NEEDED = [
   ...Array.from({ length: 4 }, (_, i) => `vgaspec${i}.dat`),
 ];
 
-const SKILL_ORDER = ['climber', 'floater', 'bomber', 'blocker', 'builder', 'basher', 'miner', 'digger'];
+export const SKILL_ORDER = ['climber', 'floater', 'bomber', 'blocker', 'builder', 'basher', 'miner', 'digger'];
 const EFFECTS = { 1: 'exit', 4: 'trap', 5: 'water', 6: 'fire', 7: 'oneWayLeft', 8: 'oneWayRight' };
 export const BRICK = 64; // where the builder's brick colour goes in a level's palette
 
