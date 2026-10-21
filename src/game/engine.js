@@ -486,6 +486,9 @@ export class Game {
       return true;
     }
     if (index >= 2 && index <= 5) {
+      // steel in front (a bash just given next to it): stop before cutting
+      const front = this.readMap(L.x + L.dx * 8, L.y - 8);
+      if (front === DOM.STEEL) { this.events.push('steel'); this.transition(L, 'walking', true); return true; }
       this.applyDirMask('bash', index - 2, L.rtl, L.x - 8, L.y - 10);
       // frame 5 (not 21): nothing left in front? stop bashing
       if (L.frame === 5) {
@@ -498,7 +501,13 @@ export class Game {
   }
 
   mining(L) {
-    if (L.frame === 1) { this.applyDirMask('mine', 0, L.rtl, L.x - 8, L.y - 13); return false; }
+    if (L.frame === 1) {
+      // steel in front or below (a mine just given next to it): stop before cutting
+      if (this.readMap(L.x + L.dx * 8, L.y - 8) === DOM.STEEL || this.readMap(L.x, L.y) === DOM.STEEL) {
+        this.events.push('steel'); this.transition(L, 'walking', true); return true;
+      }
+      this.applyDirMask('mine', 0, L.rtl, L.x - 8, L.y - 13); return false;
+    }
     if (L.frame === 2) { this.applyDirMask('mine', 1, L.rtl, L.x + L.dx - 8, L.y + 1 - 13); return false; }
     if (L.frame === 3 || L.frame === 15) {
       for (let i = 0; i < 2; i++) {
