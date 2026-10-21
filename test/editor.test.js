@@ -7,6 +7,7 @@ import { loadDosFolder } from '../tools/dosshot.mjs';
 import { Game, WORLD_W } from '../src/game/engine.js';
 import { buildCustom, standY } from '../src/editor/build.js';
 import { newLevel, check, playKey } from '../src/editor/format.js';
+import { SETS } from '../src/editor/sets.js';
 import { originalSpec } from '../src/editor/import.js';
 import { ghostRun, falls, SAFE_DROP } from '../src/editor/analyse.js';
 import { Recorder, replayTo, proves } from '../src/editor/replay.js';
@@ -213,7 +214,7 @@ test('the editor picks, groups, copies, mirrors and deletes several things at on
   assert.equal(spec.terrain[3].dir, -1, 'a staircase turns to face the other way');
 });
 
-test('an original level copied to the editor builds the same ground, steel and settings', () => {
+test('an original level copied to the editor builds the same ground and settings', () => {
   let copied = 0;
   dos.levels.forEach((info, i) => {
     const spec = originalSpec(dos, i);
@@ -221,9 +222,10 @@ test('an original level copied to the editor builds the same ground, steel and s
     copied++;
     const a = dos.build(i), b = buildCustom(check(spec), dos).level;
     assert.ok(a.terrain.every((c, k) => c === b.terrain[k]), `${info.name}: ground`);
-    assert.deepEqual(b.steel, a.steel, `${info.name}: steel`);
     for (const k of ['count', 'save', 'rate', 'time']) assert.equal(b[k], a[k], `${info.name}: ${k}`);
     assert.deepEqual(b.skills, a.skills, `${info.name}: skills`);
+    const steelPieces = SETS[spec.set].steel;
+    assert.equal(b.steel.length, spec.terrain.filter((it) => it.k === 'piece' && steelPieces.includes(it.p) && !it.erase).length, `${info.name}: steel only from steel pieces`);
   });
   assert.equal(copied, 116, 'all but the four picture levels');
 });

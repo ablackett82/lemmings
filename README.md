@@ -117,14 +117,9 @@ Crystal): its own terrain pieces and objects, so it looks like an original.
 
 - **Pieces**: any of the set's pieces; tap to place, drag to move, then
   mirror, flip, put behind, or make it cut its shape out. The steel ones
-  (marked) bring a steel area of their own, grouped with them.
-- **Steel**: ground lemmings can't dig, bash or mine into. Steel is drawn
-  areas (a `steel` item: x, y, w, h), as in the original files, not a
-  property of pieces: drag a box to make one (on a 4 pixel grid), tap to pick
-  it, drag a corner to resize. It isn't drawn in the game. Levels made before
-  this (no `sv: 2`) took each steel piece as its own area; `upgradeSteel()`
-  (`build.js`) turns those into drawn areas, at once if the level isn't beaten,
-  else on its first change.
+  (marked) are steel: lemmings can't dig, bash or mine into them. Only steel-looking
+  pieces are steel, never plain ground, so there's no way to make invisible
+  undiggable mazes.
 - **Lumps**: draw a line and the set's organic lumps are scattered along it,
   flipped and jumbled, the way the original levels' landscapes are made.
 - **Paint** / **Rubber**: draw ground in the set's texture, or rub it out.
@@ -151,10 +146,12 @@ mark at the limit. Two fingers pan and pinch; undo and redo; the arrow
 buttons (or keys) nudge one pixel.
 
 **Copy an original level** (on the My levels screen) makes your own editable
-copy of one of the 120 (`import.js`): same pieces, objects, settings and exact
-steel areas, each area grouped with the steel piece it mostly covers. The four
+copy of one of the 120 (`import.js`): same pieces, objects and settings. The
+original files' separate steel rectangles aren't copied (they're often lazy or
+odd: a big steel block with its inner pieces not boxed, steel round ordinary
+rock); in a copy the set's steel pieces are the steel. The four
 levels drawn as one full-screen picture (22, 44, 75, 112) can't be copied. A
-test checks the copies build the same ground, steel and settings as the originals.
+test checks the copies build the same ground and settings as the originals.
 
 **▶ Test** plays it. The game is recorded as its inputs (`replay.js`; the
 engine is deterministic), so the pause menu's **Back 5 seconds** replays up

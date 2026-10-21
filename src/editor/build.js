@@ -67,7 +67,7 @@ export function buildCustom(spec, dos) {
   const set = dos.set(spec.set);
   const palette = levelPalette(set.custom);
   const pix = new Uint8Array(WORLD_W * WORLD_H);
-  const steel = spec.steel ? spec.steel.map((r) => ({ ...r })) : [];
+  const steel = [];
   const steelPieces = new Set(SETS[spec.set].steel);
   const boxes = [], ends = [];
   const tex = texture(dos, spec.set);
@@ -80,7 +80,7 @@ export function buildCustom(spec, dos) {
         if (!p) break;
         drawPiece(pix, p, it.x, it.y, { flipV: it.fv, flipH: it.fh, behind: it.behind, erase: it.erase });
         box = { x: it.x, y: it.y, w: p.w, h: p.h };
-        if (!spec.steel && steelPieces.has(it.p) && !it.erase) steel.push({ ...box });
+        if (steelPieces.has(it.p) && !it.erase) steel.push({ ...box });
         break;
       }
       case 'paint': case 'erase':

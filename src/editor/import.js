@@ -2,7 +2,9 @@
 // My levels and changed. The pieces and objects are the ones the file lists,
 // in the same order, so it builds back to the same level. The exceptions: the
 // full-screen-picture levels (null: there are no pieces to edit), and the
-// exits' roofs, which the editor adds to an exit itself.
+// exits' roofs, which the editor adds to an exit itself. The original files'
+// separate steel rectangles aren't copied: in the editor only the set's steel
+// pieces are steel (see sets.js), so ground that doesn't look like steel never is.
 
 import { SKILL_ORDER } from '../dos/dosdata.js';
 import { SETS } from './sets.js';
@@ -46,20 +48,12 @@ export function originalSpec(dos, i) {
   const exits = objects.filter((o) => set.objects[o.id].effect === 'exit');
   objects = objects.filter((o) => !(o.id === roof && o.behind && exits.some((e) => e.x === o.x && e.y + dy === o.y)));
 
-  // the steel areas, exactly (these replace the steel pieces' own)
-  const steel = [];
-  for (let k = 0; k < 32; k++) {
-    const o = 0x760 + k * 4, pos = be16(raw, o), size = raw[o + 2];
-    if (!pos && !size) continue;
-    steel.push({ x: (pos >> 7) * 4 - 16, y: (pos & 0x7f) * 4, w: (size >> 4) * 4 + 4, h: (size & 0xf) * 4 + 4 });
-  }
-
   const w = (k) => be16(stats, k);
   return {
     v: 1, name: info.name, author: '', set: setNo,
     count: w(2), save: w(4), rate: w(0), time: w(6),
     skills: Object.fromEntries(SKILL_ORDER.map((s, k) => [s, w(8 + k * 2)])),
     start: be16(raw, 0x18),
-    terrain, objects, steel,
+    terrain, objects,
   };
 }

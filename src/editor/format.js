@@ -3,8 +3,6 @@
 // { v: 1, name, author, set (0..4: Dirt, Fire, Marble, Pillar, Crystal),
 //   count, save, rate, time (minutes), skills: { climber: n, ... }, start,
 //   terrain: [item, ...] (drawn in order), objects: [{ id, x, y, fv?, behind?, g? }],
-//   steel?: [{ x, y, w, h }, ...] (a copy of an original level: its steel areas, exactly;
-//     with it, these are the steel, and the steel pieces' own aren't),
 //   proof?: a recorded win (replay.js) }
 //
 // Terrain items:
@@ -62,9 +60,6 @@ export function check(spec) {
     if (o.behind) c.behind = true;
     if (o.g) c.g = int(o.g, 1, 9999);
     out.objects.push(c);
-  }
-  if (Array.isArray(spec.steel)) {
-    out.steel = spec.steel.slice(0, 64).map((r) => ({ x: int(r?.x, -300, 1900), y: int(r?.y, -300, 460), w: int(r?.w, 1, 1700), h: int(r?.h, 1, 170) }));
   }
   if (spec.proof && Array.isArray(spec.proof.log)) out.proof = { log: spec.proof.log.slice(0, 5000), key: String(spec.proof.key ?? '') };
   return out;
