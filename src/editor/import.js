@@ -50,7 +50,7 @@ export function originalSpec(dos, i) {
 
   const w = (k) => be16(stats, k);
   return {
-    v: 1, name: info.name, author: '', set: setNo,
+    v: 1, sv: 2, name: info.name, author: '', set: setNo,
     count: w(2), save: w(4), rate: w(0), time: w(6),
     skills: Object.fromEntries(SKILL_ORDER.map((s, k) => [s, w(8 + k * 2)])),
     start: be16(raw, 0x18),

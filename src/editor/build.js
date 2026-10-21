@@ -59,6 +59,26 @@ function seatExit(pix, d, x, y) {
   return y;
 }
 
+const solid = new WeakMap();
+
+/**
+ * A steel piece's steel area, from sv 2: just where the piece is solid, as
+ * placed (mirrored, flipped). The piece's picture has an empty margin the
+ * area used to cover, making ordinary ground beside it undiggable.
+ */
+function visibleBox(p, { x, y, fv, fh }) {
+  let b = solid.get(p);
+  if (!b) {
+    let x0 = p.w, y0 = p.h, x1 = -1, y1 = -1;
+    for (let j = 0; j < p.h; j++) for (let i = 0; i < p.w; i++) {
+      if (!p.mask[j * p.w + i]) continue;
+      x0 = Math.min(x0, i); x1 = Math.max(x1, i); y0 = Math.min(y0, j); y1 = Math.max(y1, j);
+    }
+    solid.set(p, b = { x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 });
+  }
+  return { x: x + (fh ? p.w - b.x0 - b.w : b.x0), y: y + (fv ? p.h - b.y0 - b.h : b.y0), w: b.w, h: b.h };
+}
+
 /**
  * spec (see format.js) → { level (for new Game()), boxes: per terrain item
  * its bounds {x, y, w, h}, ends: per stamp where the lemming finished }.
@@ -80,7 +100,7 @@ export function buildCustom(spec, dos) {
         if (!p) break;
         drawPiece(pix, p, it.x, it.y, { flipV: it.fv, flipH: it.fh, behind: it.behind, erase: it.erase });
         box = { x: it.x, y: it.y, w: p.w, h: p.h };
-        if (steelPieces.has(it.p) && !it.erase) steel.push({ ...box });
+        if (steelPieces.has(it.p) && !it.erase) steel.push(spec.sv === 2 ? visibleBox(p, it) : { ...box });
         break;
       }
       case 'paint': case 'erase':

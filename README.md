@@ -119,7 +119,8 @@ Crystal): its own terrain pieces and objects, so it looks like an original.
   mirror, flip, put behind, or make it cut its shape out. The steel ones
   (marked) are steel: lemmings can't dig, bash or mine into them. Only steel-looking
   pieces are steel, never plain ground, so there's no way to make invisible
-  undiggable mazes.
+  undiggable mazes. A steel piece's steel is just its solid part (levels made
+  before `sv: 2` used the piece's whole picture, empty margin and all, and still do).
 - **Lumps**: draw a line and the set's organic lumps are scattered along it,
   flipped and jumbled, the way the original levels' landscapes are made.
 - **Paint** / **Rubber**: draw ground in the set's texture, or rub it out.

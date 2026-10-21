@@ -3,6 +3,8 @@
 // { v: 1, name, author, set (0..4: Dirt, Fire, Marble, Pillar, Crystal),
 //   count, save, rate, time (minutes), skills: { climber: n, ... }, start,
 //   terrain: [item, ...] (drawn in order), objects: [{ id, x, y, fv?, behind?, g? }],
+//   sv: 2 (a steel piece's steel is just its solid part; without it, an older level,
+//     where it was the piece's whole picture, margin and all),
 //   proof?: a recorded win (replay.js) }
 //
 // Terrain items:
@@ -21,7 +23,7 @@ export const LIMITS = { count: [1, 80], rate: [1, 99], time: [1, 9], skill: [0, 
 /** A new level: the set's ground along the bottom (its top at y 128), an entrance and an exit (exitY: its top, from standY()). */
 export function newLevel(set = 0, exitY = 112) {
   return {
-    v: 1, name: '', author: '', set,
+    v: 1, sv: 2, name: '', author: '', set,
     count: 20, save: 10, rate: 50, time: 5,
     skills: Object.fromEntries(SKILLS.map((s) => [s, 5])),
     start: 0,
@@ -42,6 +44,7 @@ export function check(spec) {
     start: int(spec.start, 0, WORLD_W),
     terrain: [], objects: [],
   };
+  if (spec.sv === 2) out.sv = 2;
   out.save = int(spec.save, 0, out.count, 1);
   const pts = (a) => (Array.isArray(a) ? a.slice(0, 4000).map((p) => [int(p?.[0], -100, 1700), int(p?.[1], -100, 260)]) : []);
   for (const it of Array.isArray(spec.terrain) ? spec.terrain.slice(0, 3000) : []) {

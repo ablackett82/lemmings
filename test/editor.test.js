@@ -229,3 +229,15 @@ test('an original level copied to the editor builds the same ground and settings
   });
   assert.equal(copied, 116, 'all but the four picture levels');
 });
+
+test('a steel piece\'s steel is its solid part (new levels), or its whole picture (older ones)', () => {
+  // dirt piece 23 is 32 wide with the right 8 empty
+  const at = (extra, flags = {}) => level([{ k: 'piece', p: 23, x: 100, y: 50, ...flags }], [], extra).level.steel[0];
+  assert.deepEqual(at({}), { x: 100, y: 50, w: 24, h: 24 });
+  assert.deepEqual(at({}, { fh: true }), { x: 108, y: 50, w: 24, h: 24 }, 'mirrored: the empty part is on the left');
+  assert.deepEqual(at({ sv: undefined }), { x: 100, y: 50, w: 32, h: 24 }, 'an older level keeps the whole picture');
+  // fire piece 14 is 25 tall with the top 11 empty
+  const fire = (flags) => level([{ k: 'piece', p: 14, x: 100, y: 50, ...flags }], [], { set: 1 }).level.steel[0];
+  assert.deepEqual(fire({}), { x: 100, y: 61, w: 25, h: 14 });
+  assert.deepEqual(fire({ fv: true }), { x: 100, y: 50, w: 25, h: 14 }, 'upside down: the empty part is at the bottom');
+});
