@@ -6,15 +6,24 @@ import { WORLD_W, WORLD_H, SKILLS } from '../game/engine.js';
 import { makeLemmingFrames, LEM_PALETTE, DIGITS } from '../game/sprites.js';
 import { oneWayArrow } from '../game/objects.js';
 import { FONT } from './font.js';
+import { drawGadget, countdown } from '../game/gadgets.js';
 
 export const SCREEN_W = 320, SCREEN_H = 200, VIEW_H = 160;
 export const PANEL_Y = 176, BTN_W = 16, BTN_H = 24;
 export const BUTTONS = ['slower', 'faster', ...SKILLS, 'pause', 'nuke', 'ff'];
 export const MINI = { x: 209, y: 178, w: 100, h: 20 }; // inside the DOS panel's red frame
+// a picked cannon's controls, over the bottom of the level on the side away
+// from the cannon: drive, aim, let go. padAt(cannon's x on the screen).
+const PAD = [
+  { a: 'left', x: 4, y: 138, w: 20, h: 19 }, { a: 'right', x: 26, y: 138, w: 20, h: 19 },
+  { a: 'aimLeft', x: 54, y: 138, w: 20, h: 19 }, { a: 'aimRight', x: 76, y: 138, w: 20, h: 19 },
+  { a: 'close', x: 102, y: 138, w: 15, h: 19 },
+];
+export const padAt = (cx) => { const dx = cx < SCREEN_W / 2 ? SCREEN_W - 122 : 0; return PAD.map((b) => ({ ...b, x: b.x + dx })); };
 
 const PANEL = [44, 52, 78], PANEL_HI = [84, 96, 136], PANEL_LO = [24, 28, 44];
 const INFO = [80, 230, 90];
-const LABEL = { walking: 'WALKER', jumping: 'WALKER', digging: 'DIGGER', climbing: 'CLIMBER', drowning: 'DROWNER', hoisting: 'CLIMBER', building: 'BUILDER', bashing: 'BASHER', mining: 'MINER', falling: 'FALLER', floating: 'FLOATER', splatting: 'SPLATTER', exiting: 'WALKER', vaporizing: 'FRIER', blocking: 'BLOCKER', shrugging: 'SHRUGGER', ohnoing: 'BOMBER', exploding: 'BOMBER' };
+const LABEL = { flying: 'FLYER', walking: 'WALKER', jumping: 'WALKER', digging: 'DIGGER', climbing: 'CLIMBER', drowning: 'DROWNER', hoisting: 'CLIMBER', building: 'BUILDER', bashing: 'BASHER', mining: 'MINER', falling: 'FALLER', floating: 'FLOATER', splatting: 'SPLATTER', exiting: 'WALKER', vaporizing: 'FRIER', blocking: 'BLOCKER', shrugging: 'SHRUGGER', ohnoing: 'BOMBER', exploding: 'BOMBER' };
 const ICON = { climber: ['climbing', 2], floater: ['floating', 5], bomber: ['ohnoing', 3], blocker: ['blocking', 0], builder: ['building', 8], basher: ['bashing', 3], miner: ['mining', 7], digger: ['digging', 1] };
 
 export class Screen {
@@ -133,11 +142,13 @@ export class Screen {
       }
     }
     for (const o of g.objects) if (o.front) this.drawObject(o, sx, pix);
+    for (const c of g.gadgets) drawGadget(c, (x, y, col) => { if (y >= 0 && y < VIEW_H) this.px(x - sx, y, col); });
     // the lemmings: the DOS ones in the level's colours, or ours
     const frames = lv.frames ?? this.frames, lemPal = lv.frames ? pal : LEM_PALETTE;
     for (const L of g.lemmings) {
-      if (L.removed) continue;
-      const set = frames[L.action][L.rtl ? 1 : 0];
+      if (L.removed || (L.action === 'incannon' && !L.boarding)) continue;
+      // a flyer looks like a faller; one climbing into a cannon, like a climber
+      const set = frames[L.action === 'flying' ? 'falling' : L.action === 'incannon' ? L.look : L.action][L.rtl ? 1 : 0];
       const f = set[Math.min(L.frame, set.length - 1)];
       this.sprite(f, L.x - sx, L.y, VIEW_H, null, lemPal);
       if (L.explosionTimer > 0) {
@@ -176,6 +187,12 @@ export class Screen {
         }
       }
     }
+    // cannons counting down, and the one being driven
+    for (const c of g.gadgets) {
+      const n = countdown(c);
+      if (n) this.text(c.x - sx - 2, Math.max(0, c.y - 30), String(n), n === 1 ? [255, 90, 60] : [255, 230, 80]);
+    }
+    if (ui.cannon >= 0 && g.gadgets[ui.cannon]) this.drawPad(g.gadgets[ui.cannon], sx, ui.pad);
     for (const f of ui.flash ?? []) {
       const r = 10 - f.t;
       if (r > 2) this.frame(f.x - sx - r, f.y - 5 - r, r * 2, r * 2, [255, 255, 255]);
@@ -184,6 +201,40 @@ export class Screen {
     if (ui.message) this.centred(70, ui.message, [255, 255, 255]);
     this.drawPanel(g, ui);
     return rgba;
+  }
+
+  /** Corners round the cannon being driven, and its buttons (pressed: the one held down). */
+  drawPad(c, sx, pressed) {
+    const W = [255, 255, 255];
+    for (const [dx, dy] of [[-12, -22], [11, -22], [-12, 4], [11, 4]]) {
+      const x = c.x - sx + dx, y = c.y + dy, hx = Math.sign(dx), hy = Math.sign(dy);
+      for (let k = 0; k < 4; k++) { if (y >= 0 && y < VIEW_H) this.px(x - hx * k, y, W); if (y - hy * k >= 0 && y - hy * k < VIEW_H) this.px(x, y - hy * k, W); }
+    }
+    const pad = padAt(c.x - sx), ox = pad[0].x - 4;
+    this.rect(ox + 1, 127, 119, 32, [20, 22, 34]);
+    this.frame(ox + 1, 127, 119, 32, [90, 100, 140]);
+    this.text(ox + 8, 129, 'DRIVE', [170, 180, 210]);
+    this.text(ox + 64, 129, 'AIM', [170, 180, 210]);
+    for (const b of pad) {
+      this.rect(b.x, b.y, b.w, b.h, pressed === b.a ? [110, 70, 70] : PANEL);
+      this.frame(b.x, b.y, b.w, b.h, PANEL_HI);
+      const cx = b.x + (b.w >> 1), cy = b.y + (b.h >> 1);
+      if (b.a === 'left' || b.a === 'right') {
+        const d = b.a === 'left' ? -1 : 1;
+        for (let k = 0; k < 6; k++) this.rect(cx - d * 3 + d * k, cy - 5 + k, 1, 11 - k * 2, W);
+      } else if (b.a === 'close') {
+        for (let k = -3; k <= 3; k++) { this.px(cx + k, cy + k, W); this.px(cx + k, cy - k, W); }
+      } else {
+        // a curved arrow, the way the barrel turns
+        const d = b.a === 'aimLeft' ? -1 : 1;
+        for (let t = 0; t <= 12; t++) {
+          const a = Math.PI * (0.15 + 0.7 * t / 12);
+          this.px(Math.round(cx + Math.cos(a) * 6), Math.round(cy + 3 - Math.sin(a) * 6), W);
+        }
+        const ex = cx + d * 6, ey = cy + 2;
+        for (let k = 0; k < 4; k++) { this.px(ex - d * k, ey, W); this.px(ex, ey - k, W); }
+      }
+    }
   }
 
   /** The name of the lemming under the cursor, as the panel shows it. */

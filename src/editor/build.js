@@ -10,6 +10,7 @@
 import { Game, Lemming, WORLD_W, WORLD_H } from '../game/engine.js';
 import { BRICK, drawPiece, levelPalette } from '../dos/dosdata.js';
 import { SETS, texture } from './sets.js';
+import { makeGadgets, drawGadget } from '../game/gadgets.js';
 
 export const STAMPS = ['build', 'bash', 'mine', 'dig', 'bomb'];
 const SKILL = { build: 'building', bash: 'bashing', mine: 'mining', dig: 'digging' };
@@ -115,8 +116,9 @@ export function buildCustom(spec, dos) {
     boxes.push(box);
   });
 
-  const objects = [];
+  const objects = [], gadgets = [];
   for (const o of spec.objects) {
+    if (o.k) { gadgets.push(o); continue; }
     const d = set.objects[o.id];
     if (!d) continue;
     const oneWay = d.effect === 'oneWayLeft' || d.effect === 'oneWayRight';
@@ -137,7 +139,7 @@ export function buildCustom(spec, dos) {
     name: spec.name || 'Untitled', rating: spec.author ? `by ${spec.author}` : 'New level', number: 0,
     rate: spec.rate, count: spec.count, save: spec.save, time: spec.time, skills: { ...spec.skills },
     start,
-    terrain: pix, palette, steel, objects, oneway: [], brick: BRICK,
+    terrain: pix, palette, steel, objects, gadgets, oneway: [], brick: BRICK,
     frames: dos.frames, masks: dos.masks,
   };
   return { level, boxes, ends };
@@ -246,5 +248,6 @@ export function drawLevel(level, pix = level.terrain, out = new Uint8ClampedArra
     }
   }
   for (const o of level.objects) if (o.front) obj(o);
+  for (const c of makeGadgets(level.gadgets ?? [], pix)) drawGadget(c, (x, y, col) => put(x, y, ...col));
   return out;
 }

@@ -19,7 +19,8 @@
 import { WORLD_W, WORLD_H, SKILLS } from '../game/engine.js';
 import { hdIcon, HD_LABELS } from '../render/hdicons.js';
 import { buildCustom, drawLevel, objectKinds, standY, brush } from './build.js';
-import { ghostRun, falls, SAFE_DROP } from './analyse.js';
+import { ghostRun, falls, shot, SAFE_DROP } from './analyse.js';
+import { drawGadget, gadgetBox } from '../game/gadgets.js';
 import { SETS, texture } from './sets.js';
 import { originalSpec } from './import.js';
 import { drawPiece } from '../dos/dosdata.js';
@@ -31,6 +32,9 @@ const TOOLS = [
 ];
 const STAMP_LIST = [['build', 'builder', 'Stairs'], ['bash', 'basher', 'Bash'], ['mine', 'miner', 'Mine'], ['dig', 'digger', 'Dig'], ['bomb', 'bomber', 'Bomb']];
 const THING_NAMES = { entrance: 'Entrance', exit: 'Exit', water: 'Water', fire: 'Fire', trap: 'Trap', left: 'One way ←', right: 'One way →', deco: 'Decoration' };
+// the gadgets (gadgets.js): not in the original game, after its things in the tray
+const GADGET_NAMES = { flip: 'Flip board', cannon: 'Cannon' };
+const NEW_GADGET = { flip: { dir: 1, ang: 45, pow: 5 }, cannon: { aim: 45, pow: 6 } };
 const END_STYLE = {
   splat: ['#ff4040', 'SPLAT'], drown: ['#40a0ff', 'DROWNED'], fire: ['#ff9020', 'BURNT'], trap: ['#d060ff', 'TRAPPED'],
   out: ['#ff4040', 'FELL OUT'], stuck: ['#ffd040', 'STUCK'],
@@ -309,6 +313,7 @@ export class Editor {
 
   /** After any change: rebuild, redraw, and work out the trails and falls a moment later. */
   changed() {
+    this.spec.v = this.spec.objects.some((o) => o.k) ? 2 : 1; // gadgets: a level older copies of the game can't read
     this.rebuild();
     this.draw();
     clearTimeout(this.analyseTimer);
@@ -319,6 +324,7 @@ export class Editor {
 
   rebuild() {
     this.built = buildCustom(this.spec, this.dos);
+    this.shots = new Map();
     const rgba = drawLevel(this.built.level);
     this.wimg.data.set(rgba);
     this.wctx.putImageData(this.wimg, 0, 0);
@@ -429,7 +435,7 @@ export class Editor {
         for (let k = 0; k < t.length; k += 2) {
           const [px, py] = S(t[k] + 0.5, t[k + 1]);
           // a jump of more than a few pixels (a lemming put somewhere new) starts a new line
-          if (k && Math.abs(t[k] - t[k - 2]) > 6) c.moveTo(px, py); else if (k) c.lineTo(px, py); else c.moveTo(px, py);
+          if (k && Math.abs(t[k] - t[k - 2]) > 6 && Math.hypot(t[k] - t[k - 2], t[k + 1] - t[k - 1]) > 24) c.moveTo(px, py); else if (k) c.lineTo(px, py); else c.moveTo(px, py);
         }
         c.stroke();
       }
@@ -476,6 +482,26 @@ export class Editor {
         }
       }
     }
+    // where a picked flip board or cannon sends a lemming
+    for (const s of this.all()) {
+      const it = this.item(s);
+      if (s.t !== 'object' || !it?.k) continue;
+      const gi = this.spec.objects.slice(0, s.i).filter((o) => o.k).length;
+      if (!this.shots.has(gi)) this.shots.set(gi, shot(this.built.level, gi));
+      const r = this.shots.get(gi);
+      if (!r) continue;
+      const col = r.dies || r.out ? '#ff4a4a' : '#ffe14a';
+      c.strokeStyle = 'rgba(0,0,0,0.7)'; c.lineWidth = 4; c.setLineDash([]);
+      const path = () => { c.beginPath(); for (let k = 0; k < r.pts.length; k += 2) { const [px, py] = S(r.pts[k] + 0.5, r.pts[k + 1]); if (k) c.lineTo(px, py); else c.moveTo(px, py); } };
+      path(); c.stroke();
+      c.strokeStyle = col; c.lineWidth = 2; c.setLineDash([4, 3]); path(); c.stroke(); c.setLineDash([]);
+      const [ex, ey] = S(r.x + 0.5, Math.min(r.y, WORLD_H));
+      c.fillStyle = col; c.beginPath(); c.arc(ex, ey, 4, 0, Math.PI * 2); c.fill();
+      c.font = '600 11px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+      const label = r.out ? 'falls out' : r.dies ? `splat (${r.drop})` : `lands (${r.drop})`;
+      c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,0.85)'; c.strokeText(label, ex, ey - 6);
+      c.fillStyle = col; c.fillText(label, ex, ey - 6);
+    }
     // the selection
     for (const { box, grouped } of this.selBoxes()) {
       const [x0, y0] = S(box.x, box.y);
@@ -519,7 +545,9 @@ export class Editor {
   /** The bounds of a thing, { x, y, w, h }, or null. */
   boxOf(s) {
     if (s.t === 'object') {
-      const o = this.spec.objects[s.i], d = this.dos.set(this.spec.set).objects[o?.id];
+      const o = this.spec.objects[s.i];
+      if (o?.k) return gadgetBox(o);
+      const d = this.dos.set(this.spec.set).objects[o?.id];
       return o && d ? { x: o.x, y: o.y, w: d.w, h: d.h } : null;
     }
     return this.built.boxes[s.i] ?? null;
@@ -550,10 +578,7 @@ export class Editor {
     const set = this.dos.set(this.spec.set);
     const inBox = (b) => b && x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
     const tests = [];
-    for (let i = this.spec.objects.length - 1; i >= 0; i--) {
-      const o = this.spec.objects[i], d = set.objects[o.id];
-      tests.push({ t: 'object', i, ok: d && inBox({ x: o.x, y: o.y, w: d.w, h: d.h }) });
-    }
+    for (let i = this.spec.objects.length - 1; i >= 0; i--) tests.push({ t: 'object', i, ok: inBox(this.boxOf({ t: 'object', i })) });
     const hidden = [];
     for (let i = this.spec.terrain.length - 1; i >= 0; i--) {
       const it = this.spec.terrain[i], b = this.built.boxes[i];
@@ -678,8 +703,9 @@ export class Editor {
       for (const b of t.querySelectorAll('[data-dir]')) b.addEventListener('click', () => { this.opts.dir = +b.dataset.dir; this.trayFor('stamps'); });
     } else if (tool === 'things') {
       const kinds = objectKinds(dos, set);
-      t.innerHTML = `<div class="ed-strip">${kinds.map((k) => `<button type="button" data-thing="${k.id}" class="${this.opts.thing === k.id ? 'on' : ''}"><img alt="" src="${this.objectThumb(k.id)}"><span>${THING_NAMES[k.kind]}</span></button>`).join('')}</div>`;
-      for (const b of t.querySelectorAll('[data-thing]')) b.addEventListener('click', () => { this.opts.thing = +b.dataset.thing; this.trayFor('things'); });
+      t.innerHTML = `<div class="ed-strip">${kinds.map((k) => `<button type="button" data-thing="${k.id}" class="${this.opts.thing === k.id ? 'on' : ''}"><img alt="" src="${this.objectThumb(k.id)}"><span>${THING_NAMES[k.kind]}</span></button>`).join('')}${
+        Object.entries(GADGET_NAMES).map(([k, name]) => `<button type="button" data-thing="${k}" class="${this.opts.thing === k ? 'on' : ''}"><img alt="" src="${this.gadgetThumb(k)}"><span>${name}</span></button>`).join('')}</div>`;
+      for (const b of t.querySelectorAll('[data-thing]')) b.addEventListener('click', () => { const v = b.dataset.thing; this.opts.thing = GADGET_NAMES[v] ? v : +v; this.trayFor('things'); });
       if (this.opts.thing === null) t.insertAdjacentHTML('afterbegin', '<p class="ed-hint">Pick one, then tap the level to put it there. Lemmings come out of the entrance and go home through the exit.</p>');
     }
   }
@@ -706,6 +732,14 @@ export class Editor {
     } else if (it.k === 'stamp') {
       html += b('dir', it.dir < 0 ? '← Left' : 'Right →', false, 'Which way');
       if (it.s === 'build') html += b('less', '−', false, 'Fewer staircases') + `<span class="ed-n">${it.n ?? 1}</span>` + b('more', '+', false, 'Another staircase');
+    } else if (it.k === 'flip') {
+      html += b('gdir', it.dir < 0 ? '← Left' : 'Right →', false, 'Which way it throws')
+        + b('ang-', '−', false, 'Lower') + `<span class="ed-n">${it.ang}°</span>` + b('ang+', '+', false, 'Steeper')
+        + b('pow-', '−', false, 'Weaker') + `<span class="ed-n">Power ${it.pow}</span>` + b('pow+', '+', false, 'Stronger');
+    } else if (it.k === 'cannon') {
+      html += b('gdir', '↔ Mirror', false, 'Aim it the other way')
+        + b('aim+', '↶', false, 'Aim round to the left') + `<span class="ed-n">Aim ${it.aim}°</span>` + b('aim-', '↷', false, 'Aim round to the right')
+        + b('pow-', '−', false, 'Weaker') + `<span class="ed-n">Power ${it.pow}</span>` + b('pow+', '+', false, 'Stronger');
     } else if (this.sel.t === 'object') {
       html += b('fv', '↕ Flip', it.fv) + b('behind', 'Behind', it.behind, 'Behind the ground');
     }
@@ -755,12 +789,16 @@ export class Editor {
         if (it[act]) delete it[act]; else it[act] = true;
         break;
       case 'dir': it.dir = it.dir < 0 ? 1 : -1; break;
+      case 'gdir': if (it.k === 'flip') it.dir = -it.dir; else it.aim = 180 - it.aim; break;
+      case 'ang-': case 'ang+': it.ang = Math.max(10, Math.min(85, it.ang + (act.endsWith('+') ? 5 : -5))); break;
+      case 'aim-': case 'aim+': it.aim = Math.max(0, Math.min(180, it.aim + (act.endsWith('+') ? 5 : -5))); break;
+      case 'pow-': case 'pow+': it.pow = Math.max(1, Math.min(10, it.pow + (act.endsWith('+') ? 1 : -1))); break;
       case 'less': it.n = Math.max(1, (it.n ?? 1) - 1); break;
       case 'more': it.n = Math.min(40, (it.n ?? 1) + 1); break;
       case 'delete': list.splice(this.sel.i, 1); this.setAll([]); break;
       case 'copy': {
         const c = structuredClone(it);
-        this.shift(c, 8, it.k === 'stamp' ? 0 : 8);
+        this.shift(c, 8, it.k === 'stamp' || isGadget(it) ? 0 : 8);
         list.push(c);
         this.setAll([{ t: this.sel.t, i: list.length - 1 }]);
         break;
@@ -798,7 +836,7 @@ export class Editor {
         for (const s of sorted) {
           const c = structuredClone(this.item(s));
           if (c.g) { if (!groups.has(c.g)) groups.set(c.g, next++); c.g = groups.get(c.g); }
-          this.shift(c, 8, c.k === 'stamp' ? 0 : 8);
+          this.shift(c, 8, c.k === 'stamp' || isGadget(c) ? 0 : 8);
           lists[s.t].push(c);
           out.push({ t: s.t, i: lists[s.t].length - 1 });
         }
@@ -840,6 +878,9 @@ export class Editor {
         it.pts = it.pts.map((p) => { const q = [...p]; q[k] = lo + hi - 1 - q[k]; return q; });
       } else if (it.k === 'stamp') {
         if (horizontal) { it.x = lo + hi - 1 - it.x; it.dir = -it.dir; } else stuck++;
+      } else if (isGadget(it)) {
+        // a gadget stands on its own spot: moved across and turned round, but not upside down
+        if (horizontal) { it.x = lo + hi - 1 - it.x; if (it.k === 'flip') it.dir = -it.dir; else it.aim = 180 - it.aim; } else stuck++;
       } else if (horizontal) {
         it.x = lo + hi - (it.x + b.w);
         if (it.k === 'piece') { if (it.fh) delete it.fh; else it.fh = true; }
@@ -854,7 +895,7 @@ export class Editor {
       }
     }
     if (objects) this.toast('Turned them round, but things like exits can only be moved across, not mirrored.');
-    else if (stuck) this.toast('Skill stamps stay where they are when you flip upside down.');
+    else if (stuck) this.toast('Skill stamps and gadgets stay where they are when you flip upside down.');
   }
 
   select(sel) { this.setAll(sel ? this.withGroup(sel) : []); this.selection(); this.draw(); }
@@ -1015,6 +1056,16 @@ export class Editor {
       if (this.spec.terrain.length === g.count0) this.undoStack.pop();
       this.cursor = null;
       this.changed();
+    } else if (g.kind === 'drag' && g.snapped) {
+      // gadgets dropped go onto the ground there
+      let moved = false;
+      for (const s of this.all()) {
+        const it = this.item(s);
+        if (!isGadget(it)) continue;
+        const y = this.onGround(it.x, it.y);
+        if (y !== it.y) { it.y = y; moved = true; }
+      }
+      if (moved) this.changed();
     } else if (g.kind === 'drag' && !g.moved && this.tool === 'stamps') {
       // a tap on the selected staircase: maybe its top, for another one
       this.tap(g.w0, null);
@@ -1041,6 +1092,14 @@ export class Editor {
       this.setAll([{ t: 'terrain', i: this.spec.terrain.length - 1 }]);
     } else if (this.tool === 'things') {
       if (this.opts.thing === null) { this.toast('Pick one first (below).'); return; }
+      if (GADGET_NAMES[this.opts.thing]) {
+        // gadgets stand on the ground where you tap
+        this.snapshot();
+        this.spec.objects.push({ k: this.opts.thing, x, y: this.ground(x, y), ...NEW_GADGET[this.opts.thing] });
+        this.setAll([{ t: 'object', i: this.spec.objects.length - 1 }]);
+        this.changed(); this.selection();
+        return;
+      }
       const d = set.objects[this.opts.thing];
       this.snapshot();
       // hatches and exits sit where you tap the ground
@@ -1078,6 +1137,14 @@ export class Editor {
       if (pix[yy * WORLD_W + x] && (yy === 0 || !pix[(yy - 1) * WORLD_W + x])) return yy;
     }
     return Math.max(0, Math.min(WORLD_H - 1, y));
+  }
+
+  /** The ground at (x, y): up out of it if that's in the ground, or down to it (see ground()). */
+  onGround(x, y) {
+    const pix = this.built.level.terrain, at = (yy) => x >= 0 && x < WORLD_W && yy >= 0 && yy < WORLD_H && pix[yy * WORLD_W + x];
+    if (!at(y)) return this.ground(x, y);
+    while (y > 0 && at(y - 1)) y--;
+    return y;
   }
 
   /** The lump brush: a lump of the set at the point, if the last one's far enough away. */
@@ -1346,6 +1413,18 @@ export class Editor {
     return url;
   }
 
+  gadgetThumb(k) {
+    if (this.thumbs.has(k)) return this.thumbs.get(k);
+    const cv = document.createElement('canvas'); cv.width = 26; cv.height = 22;
+    const c = cv.getContext('2d'), img = c.createImageData(26, 22);
+    const g = k === 'flip' ? { k, x: 13, y: 20, dir: 1, ang: 40, frame: 2 } : { k, x: 12, y: 20, ang: 90, aim: 45 };
+    drawGadget(g, (x, y, col) => { if (x >= 0 && y >= 0 && x < 26 && y < 22) img.data.set([...col, 255], (y * 26 + x) * 4); });
+    c.putImageData(img, 0, 0);
+    const url = cv.toDataURL();
+    this.thumbs.set(k, url);
+    return url;
+  }
+
   objectThumb(id) {
     const key = `${this.spec.set}:o${id}`;
     if (this.thumbs.has(key)) return this.thumbs.get(key);
@@ -1360,6 +1439,8 @@ export class Editor {
     return url;
   }
 }
+
+const isGadget = (it) => it?.k === 'flip' || it?.k === 'cannon';
 
 /** Is (x, y) within r of the line through pts? */
 function near(pts, x, y, r) {

@@ -1,12 +1,12 @@
 // Service worker: caches the whole app on install so it launches offline.
 // Bump VERSION whenever any file changes, so clients pick up the new build.
-const VERSION = 'v23';
+const VERSION = 'v24';
 const CACHE = `lemmings-${VERSION}`;
 const FILES = [
   './', 'index.html', 'moved.js', 'style.css', 'manifest.webmanifest',
   'src/main.js', 'src/ui.js',
   'src/game/engine.js', 'src/game/sprites.js', 'src/game/objects.js', 'src/game/level.js',
-  'src/game/levels.js', 'src/game/title.js', 'src/game/solver.js',
+  'src/game/levels.js', 'src/game/title.js', 'src/game/solver.js', 'src/game/gadgets.js',
   'src/render/screen.js', 'src/render/font.js', 'src/render/audio.js', 'src/render/music.js',
   'src/input/keyboard.js',
   'src/dos/dat.js', 'src/dos/dosdata.js', 'src/dos/files.js', 'src/dos/midi.js', 'src/dos/wav.js', 'src/render/gm.js', 'src/render/hdicons.js',

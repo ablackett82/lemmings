@@ -6,22 +6,28 @@
 // rewinding replays up to.
 //
 // A log entry: [iteration, 'a', skill, lemming index] | [iteration, 'r', -1|0|1] | [iteration, 'n']
+//   | [iteration, 'c', gadget index, drive -1|0|1, turn -1|0|1] (a cannon's controls, when they change)
 
 import { Game, SKILLS } from '../game/engine.js';
 
 export class Recorder {
-  constructor(log = []) { this.log = log; this.rd = 0; }
+  constructor(log = []) { this.log = log; this.rd = 0; this.cs = {}; }
   assign(g, skill, L) { this.log.push([g.iteration, 'a', skill, L.index]); }
   nuke(g) { this.log.push([g.iteration, 'n']); }
   /** Before each step: the release rate buttons, when they change. */
   beforeStep(g) {
     if (g.rateDelta !== this.rd) { this.rd = g.rateDelta; this.log.push([g.iteration, 'r', this.rd]); }
+    g.gadgets.forEach((c, i) => {
+      if (c.k !== 'cannon') return;
+      const k = `${c.drive},${c.turn}`;
+      if (k !== (this.cs[i] ?? '0,0')) { this.cs[i] = k; this.log.push([g.iteration, 'c', i, c.drive, c.turn]); }
+    });
   }
   /** Forget everything from iteration t on (after rewinding to it). */
   cut(t) {
     this.log = this.log.filter((e) => e[0] < t);
-    this.rd = 0;
-    for (const e of this.log) if (e[1] === 'r') this.rd = e[2];
+    this.rd = 0; this.cs = {};
+    for (const e of this.log) if (e[1] === 'r') this.rd = e[2]; else if (e[1] === 'c') this.cs[e[2]] = `${e[3]},${e[4]}`;
   }
 }
 
@@ -35,6 +41,10 @@ export class Player {
       if (e[0] < g.iteration) continue; // can't happen in a good log
       if (e[1] === 'r') g.rateDelta = this.rd = e[2] < 0 ? -1 : e[2] > 0 ? 1 : 0;
       else if (e[1] === 'n') g.nuke();
+      else if (e[1] === 'c') {
+        const c = g.gadgets[e[2]];
+        if (c?.k === 'cannon') { c.drive = Math.sign(e[3]) || 0; c.turn = Math.sign(e[4]) || 0; }
+      }
       else if (e[1] === 'a' && SKILLS.includes(e[2])) {
         const L = g.lemmings[e[3]];
         // only as the player could have: the rules still apply

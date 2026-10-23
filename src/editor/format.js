@@ -2,7 +2,7 @@
 //
 // { v: 1, name, author, set (0..4: Dirt, Fire, Marble, Pillar, Crystal),
 //   count, save, rate, time (minutes), skills: { climber: n, ... }, start,
-//   terrain: [item, ...] (drawn in order), objects: [{ id, x, y, fv?, behind?, g? }],
+//   terrain: [item, ...] (drawn in order), objects: [{ id, x, y, fv?, behind?, g? } | gadget],
 //   sv: 2 (a steel piece's steel is just its solid part; without it, an older level,
 //     where it was the piece's whole picture, margin and all),
 //   proof?: a recorded win (replay.js) }
@@ -12,6 +12,10 @@
 //   { k: 'paint', r, pts: [[x, y], ...] }              the paint brush (the set's texture)
 //   { k: 'erase', r, pts }                             the rubber
 //   { k: 'stamp', s, x, y, dir, n? }                   a skill stamp (build.js)
+// Gadgets (gadgets.js), in the objects list; a level with any is v: 2, so an
+// older copy of the game says it can't read it rather than playing it wrong:
+//   { k: 'flip', x, y, dir, ang, pow }   a flip board, (x, y) the ground in its middle
+//   { k: 'cannon', x, y, aim, pow }      a cannon, (x, y) the ground under it
 // Any terrain item or object may also have g: a group number. Items with the
 // same g are picked, moved, copied, flipped and deleted together in the
 // editor. It changes nothing about how the level plays.
@@ -34,7 +38,7 @@ export function newLevel(set = 0, exitY = 112) {
 
 /** Checks a level read from storage or the server; returns a clean copy, or throws. */
 export function check(spec) {
-  if (!spec || spec.v !== 1) throw new Error('not a level');
+  if (!spec || (spec.v !== 1 && spec.v !== 2)) throw new Error('not a level');
   const int = (v, lo, hi, d = lo) => (Number.isFinite(+v) ? Math.max(lo, Math.min(hi, Math.round(+v))) : d);
   const out = {
     v: 1, name: String(spec.name ?? '').slice(0, 40), author: String(spec.author ?? '').slice(0, 24),
@@ -57,13 +61,19 @@ export function check(spec) {
     }
     if (out.terrain.length > before && it.g) out.terrain.at(-1).g = int(it.g, 1, 9999);
   }
-  for (const o of Array.isArray(spec.objects) ? spec.objects.slice(0, 32) : []) {
-    const c = { id: int(o?.id, 0, 15), x: int(o?.x, -300, 1900), y: int(o?.y, -300, 460) };
-    if (o.fv) c.fv = true;
-    if (o.behind) c.behind = true;
+  for (const o of Array.isArray(spec.objects) ? spec.objects.slice(0, 64) : []) {
+    let c;
+    if (o?.k === 'flip') c = { k: 'flip', x: int(o.x, 0, WORLD_W - 1), y: int(o.y, 0, 159), dir: o.dir < 0 ? -1 : 1, ang: int(o.ang, 10, 85, 45), pow: int(o.pow, 1, 10, 5) };
+    else if (o?.k === 'cannon') c = { k: 'cannon', x: int(o.x, 0, WORLD_W - 1), y: int(o.y, 0, 159), aim: int(o.aim, 0, 180, 45), pow: int(o.pow, 1, 10, 6) };
+    else {
+      c = { id: int(o?.id, 0, 15), x: int(o?.x, -300, 1900), y: int(o?.y, -300, 460) };
+      if (o.fv) c.fv = true;
+      if (o.behind) c.behind = true;
+    }
     if (o.g) c.g = int(o.g, 1, 9999);
     out.objects.push(c);
   }
+  if (out.objects.some((o) => o.k)) out.v = 2;
   if (spec.proof && Array.isArray(spec.proof.log)) out.proof = { log: spec.proof.log.slice(0, 5000), key: String(spec.proof.key ?? '') };
   return out;
 }

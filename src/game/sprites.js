@@ -278,6 +278,7 @@ const DRAW = {
 export function makeLemmingFrames() {
   const out = {};
   for (const action of Object.keys(ANIM)) {
+    if (!DRAW[action]) continue; // the gadgets' flyer is drawn as a faller, and one in a cannon isn't
     const n = ANIM[action].frames;
     const right = [];
     for (let i = 0; i < n; i++) right.push(DRAW[action](i));

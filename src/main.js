@@ -7,7 +7,8 @@ import { buildLevel } from './game/level.js';
 import { LEVELS } from './game/levels.js';
 import { TITLE_LEVEL } from './game/title.js';
 import { Solver } from './game/solver.js';
-import { Screen, SCREEN_W, SCREEN_H, VIEW_H, PANEL_Y, BTN_W, BTN_H, BUTTONS, MINI } from './render/screen.js';
+import { Screen, SCREEN_W, SCREEN_H, VIEW_H, PANEL_Y, BTN_W, BTN_H, BUTTONS, MINI, padAt } from './render/screen.js';
+import { cannonAt } from './game/gadgets.js';
 import { Sound } from './render/audio.js';
 import { Music } from './render/music.js';
 import { Keyboard } from './input/keyboard.js';
@@ -64,6 +65,8 @@ function main() {
   let paused = false, ff = false, selected = 'climber', nukeArmed = 0;
   let acc = 0, last = performance.now(), frameNo = 0, endDelay = 0;
   let flash = [];
+  // the cannon being driven (its index in g.gadgets, or -1), and its buttons held on the screen
+  let cannon = -1, padHeld = { drive: 0, turn: 0, a: null };
   let demo = makeDemo();
   // a level that isn't one of the packs': { kind: 'editor' | 'shared' | 'review',
   // spec, level, code?, rec (the game so far, as inputs), player (watching how) }
@@ -140,6 +143,7 @@ function main() {
       if (custom.kind === 'shared' && !custom.player) shared.recordPlay(custom.code, false);
     }
     mode = 'play'; paused = false; ff = false; nukeArmed = 0; endDelay = 0; flash = [];
+    cannon = -1; padHeld = { drive: 0, turn: 0, a: null };
     cheated = anyCheat();
     scrollX = clampScroll(spec.start ?? 0);
     selected = SKILLS.find((s) => g.skills[s] > 0) ?? 'climber';
@@ -402,9 +406,14 @@ function main() {
 
   function tapWorld(px, py, touch) {
     if (mode !== 'play' || g.finished) return;
-    if (paused && !opts.pauseAssign) return;
     if (custom?.player) return; // watching
     const { L, ok } = pick(px, py, touch);
+    // a tap on a cannon (not on a lemming that could take the skill) picks it to drive, or lets it go
+    if (!ok) {
+      const ci = cannonAt(g.gadgets, px + scrollX, py, touch ? 14 : 11);
+      if (ci >= 0) { pickCannon(ci === cannon ? -1 : ci); return; }
+    }
+    if (paused && !opts.pauseAssign) return;
     if (!L) return;
     // the dink: a lemming that couldn't be given it because of the steel
     if (!ok) { if (['basher', 'miner'].includes(selected) && (L.objInFront === DOM.STEEL || (selected === 'miner' && L.objBelow === DOM.STEEL))) sound.play(['steel']); return; }
@@ -412,6 +421,24 @@ function main() {
     custom?.rec?.assign(g, selected, L);
     sound.play(['assign']);
     flash.push({ x: L.x, y: L.y, t: 0 });
+  }
+
+  /** Picks a cannon to drive (-1: none). The one let go stops. */
+  function pickCannon(ci) {
+    const old = g?.gadgets[cannon];
+    if (old) { old.drive = 0; old.turn = 0; }
+    cannon = ci;
+    padHeld = { drive: 0, turn: 0, a: null };
+    sound.play(['tick']);
+  }
+
+  /** The cannon's controls: the buttons held on the screen, or the arrow keys. */
+  function driveCannon() {
+    const c = g?.gadgets[cannon];
+    if (!c || custom?.player) return;
+    const k = keyboard.held;
+    c.drive = padHeld.drive || (k.has('ArrowRight') ? 1 : 0) - (k.has('ArrowLeft') ? 1 : 0);
+    c.turn = padHeld.turn || (k.has('ArrowUp') ? 1 : 0) - (k.has('ArrowDown') ? 1 : 0);
   }
 
   function pressButton(b) {
@@ -446,7 +473,12 @@ function main() {
     if (mode !== 'play') return;
     try { stage.setPointerCapture(e.pointerId); } catch { /* already gone */ }
     const st = { x0: p.x, y0: p.y, sx0: scrollX, drag: false, area: null, touch };
-    if (p.y < VIEW_H) { st.area = 'world'; hover.x = p.x; hover.y = p.y; hover.on = true; }
+    const pad = cannon >= 0 && g.gadgets[cannon] && !custom?.player && padAt(g.gadgets[cannon].x - scrollX).find((b) => p.x >= b.x && p.x < b.x + b.w && p.y >= b.y && p.y < b.y + b.h);
+    if (pad) {
+      st.area = 'pad';
+      if (pad.a === 'close') pickCannon(-1);
+      else padHeld = { drive: { left: -1, right: 1 }[pad.a] ?? 0, turn: { aimLeft: 1, aimRight: -1 }[pad.a] ?? 0, a: pad.a };
+    } else if (p.y < VIEW_H) { st.area = 'world'; hover.x = p.x; hover.y = p.y; hover.on = true; }
     else if (p.y >= PANEL_Y && p.x < BUTTONS.length * BTN_W) {
       const b = BUTTONS[Math.floor(p.x / BTN_W)];
       st.area = b;
@@ -472,6 +504,7 @@ function main() {
     if (!st) return;
     pointers.delete(e.pointerId);
     if (st.area === 'slower' || st.area === 'faster') g.rateDelta = 0;
+    if (st.area === 'pad') padHeld = { drive: 0, turn: 0, a: null };
     if (st.area === 'world') {
       const p = toScreen(e);
       if (!st.drag && e.type === 'pointerup') tapWorld(p.x, p.y, st.touch);
@@ -597,8 +630,11 @@ function main() {
     if (keyboard.consume('KeyN')) pressButton('nuke');
     const minus = keyboard.down.has('slower'), plus = keyboard.down.has('faster');
     if (!pointers.size) g.rateDelta = paused ? 0 : minus ? -1 : plus ? 1 : 0;
-    if (keyboard.down.has('left')) scrollX = clampScroll(scrollX - 4);
-    if (keyboard.down.has('right')) scrollX = clampScroll(scrollX + 4);
+    // with a cannon picked, the arrows are its; A and D still scroll
+    const driving = cannon >= 0, k = keyboard.held;
+    if (driving ? k.has('KeyA') : keyboard.down.has('left')) scrollX = clampScroll(scrollX - 4);
+    if (driving ? k.has('KeyD') : keyboard.down.has('right')) scrollX = clampScroll(scrollX + 4);
+    driveCannon();
     // a mouse at the edge of the level scrolls it, as on DOS
     if (hover.on && !hover.touch && !pointers.size) {
       if (hover.x < 6) scrollX = clampScroll(scrollX - 4);
@@ -665,6 +701,7 @@ function main() {
       screen.drawGame(g, {
         scrollX, selected, paused, ff, nukeArmed: nukeArmed > 0, flash,
         hover: h.ok ? h.L : null, hoverCount: h.count, hoverAny: h.L,
+        cannon: custom?.player ? -1 : cannon, pad: padHeld.a,
         cheats: tags.join(' '),
         message: custom?.player && !paused ? 'WATCHING HOW IT IS DONE' : paused && !menuOpen ? 'PAUSED' : nukeArmed > 0 ? 'TAP NUKE AGAIN TO BLOW THEM ALL UP' : onlyBlockers() ? 'ONLY BLOCKERS LEFT: NUKE TO FINISH' : null,
       });

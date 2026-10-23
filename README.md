@@ -133,6 +133,15 @@ Crystal): its own terrain pieces and objects, so it looks like an original.
   what a player could make. Tap the top of a staircase for another.
 - **Things**: entrance, exit (its top comes with it), water, fire, traps,
   one-way walls, decorations.
+- **Gadgets** (at the end of Things; not in the original game, so never in
+  the 120 levels, `src/game/gadgets.js`): a **flip board** throws a lemming
+  that walks onto it, its way, at its angle and power; a **cannon** takes a
+  lemming that walks into it (it climbs in), counts 3, 2, 1 and fires it out
+  of the barrel, while the rest walk on past. In play, tap a cannon to drive
+  it along the ground (round corners and up walls) and aim it, with the pad
+  or the arrow keys. A thrown lemming lands by the usual fall rule; floaters
+  float and climbers grab walls. Picked in the editor, a gadget shows where
+  it throws. A level with gadgets is saved as `v: 2`.
 - **Select**: pick several things (tap to add or let go, or drag a box round
   them; shift-tap with a mouse in any tool). They then move, copy, mirror,
   flip, go to front or back, and delete together. Mirror and flip turn the

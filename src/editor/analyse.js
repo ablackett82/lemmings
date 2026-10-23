@@ -8,6 +8,7 @@
 //   quite the drop in pixels, so each fall is found by dropping a lemming.
 
 import { Game, Lemming, WORLD_W, WORLD_H } from '../game/engine.js';
+import { launch, launchPoint } from '../game/gadgets.js';
 
 const CAUSE = { exiting: 'home', splatting: 'splat', drowning: 'drown', vaporizing: 'fire' };
 
@@ -37,6 +38,23 @@ export function ghostRun(level, maxIterations = 4000) {
   }
   for (const L of g.lemmings) if (!L.removed) ends.push({ x: L.x, y: L.y, cause: 'stuck' });
   return { trails, ends, home: g.in, count: g.count, save: level.save, iterations: g.iteration };
+}
+
+/**
+ * Where gadget i (in level.gadgets) sends a lemming, as it stands at the
+ * start: { pts: [x, y, ...] the flight, x, y where it comes down, drop (from
+ * the top of the arc), dies, out (off the bottom) }.
+ */
+export function shot(level, i) {
+  const g = new Game({ ...level, skills: {} }, { noTimeLimit: true });
+  const c = g.gadgets[i];
+  if (!c) return null;
+  const p = launchPoint(c), L = new Lemming(0);
+  g.lemmings = [L];
+  launch(g, L, p.x, p.y, p.dir, c.pow);
+  const pts = [L.x, L.y - 5];
+  for (let guard = 400; guard-- && L.action === 'flying' && !L.removed;) { g.handleLemming(L); pts.push(L.x, L.y - 5); }
+  return { pts, x: L.x, y: L.y, drop: L.y - L.apex, dies: L.action === 'splatting', out: L.removed };
 }
 
 /** A lemming walking from (x, y) towards dir: where it ends up after a fall. */

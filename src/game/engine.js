@@ -17,6 +17,8 @@
 export const WORLD_W = 1600;
 export const WORLD_H = 160;
 
+import { makeGadgets, updateGadgets, checkGadgets, fly } from './gadgets.js';
+
 const LEMMING_MIN_X = 0;
 const LEMMING_MAX_X = 1647;
 const LEMMING_MAX_Y = 163;
@@ -53,6 +55,9 @@ export const ANIM = {
   shrugging:  { frames: 8,  fx: 8, fy: 10, loop: false },
   ohnoing:    { frames: 16, fx: 8, fy: 10, loop: false },
   exploding:  { frames: 1,  fx: 16, fy: 25, loop: false },
+  // not DOS: the gadgets (gadgets.js). A flyer is drawn as a faller; one in a cannon isn't seen.
+  flying:     { frames: 4,  fx: 8, fy: 10, loop: true },
+  incannon:   { frames: 1,  fx: 8, fy: 10, loop: true },
 };
 
 // the skill panel's skills, in panel order
@@ -89,6 +94,7 @@ export class Lemming {
     this.fallen = 0; this.bricksLeft = 0;
     this.isClimber = false; this.isFloater = false; this.isBlocking = false;
     this.isNewDigger = false;
+    this.boarding = 0; // climbing into a cannon: iterations left (gadgets.js)
     this.explosionTimer = 0;
     this.floatIdx = 0;
     this.removed = false; this.exploded = false; this.particleTimer = 0;
@@ -138,6 +144,7 @@ export class Game {
     const order = { 1: [0, 0, 0, 0], 2: [0, 1, 1, 0], 3: [0, 1, 2, 1], 4: [0, 1, 2, 3] }[ent.length];
     this.entryTable = order ? order.map((i) => ent[i]) : [];
     this.initObjectMap();
+    this.gadgets = makeGadgets(level.gadgets ?? [], this.pix);
   }
 
   // ---- the world ------------------------------------------------------------
@@ -182,6 +189,7 @@ export class Game {
     this.incrementIteration();
     this.checkRelease();
     this.checkLemmings();
+    if (this.gadgets.length) updateGadgets(this);
     this.checkNuking();
     this.updateObjects();
     this.updateParticles();
@@ -237,7 +245,10 @@ export class Game {
       if (L.particleTimer > 0) L.particleTimer--;
       if (L.removed) continue;
       if (L.explosionTimer !== 0 && this.updateExplosionTimer(L)) continue;
-      if (this.handleLemming(L)) this.checkObjects(L);
+      if (this.handleLemming(L)) {
+        this.checkObjects(L);
+        if (this.gadgets.length && !L.removed) checkGadgets(this, L);
+      }
     }
   }
 
@@ -312,7 +323,7 @@ export class Game {
 
   updateExplosionTimer(L) {
     if (--L.explosionTimer > 0) return false;
-    if (['vaporizing', 'drowning', 'floating', 'falling'].includes(L.action)) this.transition(L, 'exploding');
+    if (['vaporizing', 'drowning', 'floating', 'falling', 'flying', 'incannon'].includes(L.action)) this.transition(L, 'exploding');
     else this.transition(L, 'ohnoing');
     return true;
   }
@@ -341,7 +352,7 @@ export class Game {
       return;
     }
     switch (v) {
-      case DOM.EXIT: if (L.action !== 'falling') this.transition(L, 'exiting'); break;
+      case DOM.EXIT: if (L.action !== 'falling' && L.action !== 'flying') this.transition(L, 'exiting'); break;
       case DOM.FORCELEFT: if (L.dx > 0) this.turnAround(L); break;
       case DOM.FORCERIGHT: if (L.dx < 0) this.turnAround(L); break;
       case DOM.WATER: this.transition(L, 'drowning'); this.events.push('drown'); break;
@@ -567,6 +578,10 @@ export class Game {
 
   splatting(L) { if (L.endOfAnim) this.removeLemming(L); return false; }
 
+  flying(L) { return fly(this, L); }
+
+  incannon() { return false; } // the cannon moves it (gadgets.js)
+
   exiting(L) {
     if (L.endOfAnim) { this.removeLemming(L); this.in++; }
     return false;
@@ -650,7 +665,7 @@ export class Game {
   hitTest(px, py, box = 6) {
     let prio = null, nonPrio = null, count = 0, dP = Infinity, dN = Infinity;
     for (const L of this.lemmings) {
-      if (L.removed) continue;
+      if (L.removed || L.action === 'incannon') continue;
       const cx = L.x, cy = L.y - 5; // the middle of the lemming
       const ddx = Math.abs(px - cx), ddy = Math.abs(py - cy);
       if (ddx > box || ddy > box) continue;

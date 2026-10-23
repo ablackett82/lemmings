@@ -8,7 +8,7 @@ import { readWav } from '../dos/wav.js';
 const SAMPLES = {
   letsgo: 'letsgo.wav', door: 'door.wav', assign: 'mousepre.wav', tick: 'changeop.wav', yippee: 'yippee.wav',
   splat: 'splat.wav', ohno: 'ohno.wav', explode: 'explode.wav', drown: 'glug.wav', fry: 'fire.wav',
-  steel: 'chink.wav', buildwarn: 'ting.wav',
+  steel: 'chink.wav', buildwarn: 'ting.wav', boom: 'explode.wav',
   // the traps, by the sound number in the graphic set: electric, crusher, rope, 10 tons, bear trap
   trap6: 'electric.wav', trap7: 'thunk.wav', trap9: 'chain.wav', trap14: 'tenton.wav', trap15: 'mantrap.wav',
 };
@@ -131,4 +131,7 @@ export class Sound {
   steel() { this.tone('triangle', 2400, 2300, 0.25, 0.3); }
   buildwarn() { this.tone('square', 1000, 1000, 0.04, 0.15); }
   tick() { this.tone('square', 1500, 1500, 0.02, 0.12); }
+  // the gadgets: a flip board's spring, a cannon going off
+  boing() { this.tone('triangle', 180, 520, 0.18, 0.4); this.tone('sine', 520, 260, 0.2, 0.25, 0.12); }
+  boom() { this.explode(); }
 }
