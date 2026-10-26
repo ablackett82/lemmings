@@ -180,7 +180,7 @@ test('the editor picks, groups, copies, mirrors and deletes several things at on
     terrain: [{ k: 'piece', p: 1, x: 100, y: 20 }, { k: 'piece', p: 1, x: 200, y: 20 }, { k: 'paint', r: 3, pts: [[300, 30], [320, 30]] }, { k: 'stamp', s: 'build', x: 400, y: 100, dir: 1 }],
   });
   const ed = Object.create(Editor.prototype);
-  Object.assign(ed, { entry: { spec }, hooks: { dos: () => dos }, undoStack: [], redoStack: [], more: [], sel: null, tool: 'select', cam: { z: 1 }, selbar: { querySelectorAll: () => [], hidden: true }, toast() {}, draw() {}, changed() { this.built = buildCustom(this.spec, dos); } });
+  Object.assign(ed, { entry: { spec }, hooks: { dos: () => dos }, undoStack: [], redoStack: [], more: [], sel: null, tool: 'select', cam: { z: 1 }, selbar: { querySelectorAll: () => [], hidden: true }, gadbar: { querySelectorAll: () => [], hidden: true, style: {} }, toast() {}, draw() {}, changed() { this.built = buildCustom(this.spec, dos); } });
   ed.built = buildCustom(spec, dos);
   const w = dos.set(0).pieces[1].w;
 

@@ -7,6 +7,7 @@ import { makeLemmingFrames, LEM_PALETTE, DIGITS } from '../game/sprites.js';
 import { oneWayArrow } from '../game/objects.js';
 import { FONT } from './font.js';
 import { drawGadget, countdown } from '../game/gadgets.js';
+import { liquidShade, LIQUID_COLS } from '../game/liquid.js';
 
 export const SCREEN_W = 320, SCREEN_H = 200, VIEW_H = 160;
 export const PANEL_Y = 176, BTN_W = 16, BTN_H = 24;
@@ -175,6 +176,20 @@ export class Screen {
       const x = Math.round(p.x) - sx, y = Math.round(p.y);
       if (y >= 0 && y < VIEW_H) this.px(x, y, PC[p.c]);
     }
+    // water and lava, over everything in them (see-through, so a lemming in it looks under)
+    if (g.wet) {
+      const wet = g.wet, moved = g.wetMoved, t = g.iteration;
+      for (let y = 0; y < VIEW_H; y++) {
+        for (let x = 0; x < SCREEN_W; x++) {
+          const wx = x + sx;
+          if (wx < 0 || wx >= WORLD_W) continue;
+          const i = y * WORLD_W + wx;
+          if (!wet[i]) continue;
+          const [r, gg, b, a] = LIQUID_COLS[wet[i]][liquidShade(wet, pix, moved, i, t)], o = (y * SCREEN_W + x) * 4;
+          rgba[o] = rgba[o] * (1 - a) + r * a; rgba[o + 1] = rgba[o + 1] * (1 - a) + gg * a; rgba[o + 2] = rgba[o + 2] * (1 - a) + b * a;
+        }
+      }
+    }
     // the lemming the skill would go to
     if (ui.hover && !ui.hover.removed) {
       const L = ui.hover, x = L.x - sx, y = L.y - 5;
@@ -342,18 +357,23 @@ export class Screen {
     const { x: mx, y: my, w, h } = MINI;
     if (!this.mini || this.miniGame !== g || --this.miniAge <= 0) {
       this.mini = new Uint8Array(w * h);
+      this.miniWet = new Uint8Array(w * h); // the liquid there, if there's much: its kind
       for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
-        let n = 0;
-        for (let y = j * 8; y < j * 8 + 8; y += 2) for (let x = i * 16; x < i * 16 + 16; x += 2) if (g.pix[y * WORLD_W + x]) n++;
+        let n = 0, wn = 0, kind = 0;
+        for (let y = j * 8; y < j * 8 + 8; y += 2) for (let x = i * 16; x < i * 16 + 16; x += 2) {
+          if (g.pix[y * WORLD_W + x]) n++;
+          else if (g.wet?.[y * WORLD_W + x]) { wn++; kind = g.wet[y * WORLD_W + x]; }
+        }
         this.mini[j * w + i] = n;
+        if (wn > 3) this.miniWet[j * w + i] = kind;
       }
       this.miniGame = g; this.miniAge = 10;
     }
     if (!dos) this.rect(mx - 1, my - 1, w + 2, h + 2, PANEL_LO);
     const [hi, lo] = dos ? [[0, 176, 0], [0, 96, 0]] : [[150, 110, 70], [90, 66, 44]];
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
-      const n = this.mini[j * w + i];
-      this.px(mx + i, my + j, n > 6 ? hi : n > 0 ? lo : [0, 0, 0]);
+      const n = this.mini[j * w + i], k = this.miniWet[j * w + i];
+      this.px(mx + i, my + j, k && n <= 6 ? LIQUID_COLS[k][2] : n > 6 ? hi : n > 0 ? lo : [0, 0, 0]);
     }
     for (const o of g.objects) {
       if (o.kind === 'exit') this.px(mx + ((o.x + 20) >> 4), my + ((o.y + 20) >> 3), [255, 220, 60]);

@@ -136,7 +136,7 @@ test('the editor places gadgets on the ground, picks them, sets them, mirrors th
   const spec = check(newLevel(0, standY(dos, 0, 0, 128)));
   const ed = Object.create(Editor.prototype);
   Object.assign(ed, { entry: { spec }, hooks: { dos: () => dos }, undoStack: [], redoStack: [], more: [], sel: null, tool: 'things', opts: {}, cam: { z: 1 },
-    selbar: { querySelectorAll: () => [], hidden: true }, toast() {}, draw() {},
+    selbar: { querySelectorAll: () => [], hidden: true }, gadbar: { querySelectorAll: () => [], hidden: true, style: {} }, toast() {}, draw() {},
     changed() { this.spec.v = this.spec.objects.some((o) => o.k) ? 2 : 1; this.built = buildCustom(this.spec, dos); } });
   ed.built = buildCustom(spec, dos);
   const ground = ed.ground(200, 100);

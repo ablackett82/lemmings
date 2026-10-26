@@ -9,6 +9,7 @@ import { TITLE_LEVEL } from './game/title.js';
 import { Solver } from './game/solver.js';
 import { Screen, SCREEN_W, SCREEN_H, VIEW_H, PANEL_Y, BTN_W, BTN_H, BUTTONS, MINI, padAt } from './render/screen.js';
 import { cannonAt } from './game/gadgets.js';
+import { LIQUID_COLS } from './game/liquid.js';
 import { Sound } from './render/audio.js';
 import { Music } from './render/music.js';
 import { Keyboard } from './input/keyboard.js';
@@ -135,6 +136,7 @@ function main() {
   }
 
   function startLevel(watch = false) {
+    unscroll();
     if (!g || g.iteration > 0) { g = new Game(spec); applyAssist(); }
     if (custom) {
       custom.rec = new Recorder();
@@ -538,6 +540,10 @@ function main() {
   window.addEventListener('orientationchange', refit);
   window.visualViewport?.addEventListener('resize', refit);
   if (window.ResizeObserver) new ResizeObserver(fit).observe(stage);
+  // the iOS keyboard scrolls the page and can leave it scrolled after closing,
+  // so taps land above where the buttons are drawn; put the page back
+  function unscroll() { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); }
+  document.addEventListener('focusout', () => setTimeout(unscroll, 50));
   fit();
 
   // ---- drawing the screens between levels ----
@@ -563,6 +569,7 @@ function main() {
       const wx = i * sc + (sc >> 1), wy = j * sc + (sc >> 1);
       const c = g.pix[wy * WORLD_W + wx];
       if (c) screen.px(ox + i, y + j, g.level.palette[c]);
+      else if (g.wet?.[wy * WORLD_W + wx]) screen.px(ox + i, y + j, LIQUID_COLS[g.wet[wy * WORLD_W + wx]][2]);
     }
     for (const o of g.objects) {
       if (o.kind === 'exit') screen.rect(ox + Math.round((o.x + 16) / sc), y + Math.round((o.y + 12) / sc), 2, 3, YELLOW);

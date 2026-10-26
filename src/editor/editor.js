@@ -6,6 +6,10 @@
 // drawn over it (the ghost trails), with every fall off an edge and whether
 // it's survivable (analyse.js).
 //
+// Water and lava (liquid.js): the Water tool fills a hollow up to where you
+// tap; dragging in it makes it fuller or emptier. In play it stays there
+// until a lemming digs, bashes, mines or blows a way out for it.
+//
 // Touch: one finger draws, places, picks and drags; two fingers pan and
 // pinch-zoom. Mouse: drag the background to pan, the wheel scrolls, ctrl or
 // cmd + wheel (or a trackpad pinch) zooms; arrow keys nudge, Delete deletes,
@@ -18,20 +22,20 @@
 
 import { WORLD_W, WORLD_H, SKILLS } from '../game/engine.js';
 import { hdIcon, HD_LABELS } from '../render/hdicons.js';
-import { buildCustom, drawLevel, objectKinds, standY, brush } from './build.js';
+import { buildCustom, drawLevel, objectKinds, standY, brush, isLiquid } from './build.js';
 import { ghostRun, falls, shot, SAFE_DROP } from './analyse.js';
 import { drawGadget, gadgetBox } from '../game/gadgets.js';
 import { SETS, texture } from './sets.js';
 import { originalSpec } from './import.js';
 import { drawPiece } from '../dos/dosdata.js';
-import { newLevel, playKey, LIMITS, check } from './format.js';
+import { newLevel, playKey, LIMITS, check, version } from './format.js';
 import * as store from './store.js';
 
 const TOOLS = [
-  ['move', 'Move'], ['select', 'Select'], ['pieces', 'Pieces'], ['lumps', 'Lumps'], ['paint', 'Paint'], ['rubber', 'Rubber'], ['stamps', 'Stamps'], ['things', 'Things'],
+  ['move', 'Move'], ['select', 'Select'], ['pieces', 'Pieces'], ['lumps', 'Lumps'], ['paint', 'Paint'], ['rubber', 'Rubber'], ['stamps', 'Stamps'], ['water', 'Water'], ['things', 'Things'],
 ];
 const STAMP_LIST = [['build', 'builder', 'Stairs'], ['bash', 'basher', 'Bash'], ['mine', 'miner', 'Mine'], ['dig', 'digger', 'Dig'], ['bomb', 'bomber', 'Bomb']];
-const THING_NAMES = { entrance: 'Entrance', exit: 'Exit', water: 'Water', fire: 'Fire', trap: 'Trap', left: 'One way ←', right: 'One way →', deco: 'Decoration' };
+const THING_NAMES = { entrance: 'Entrance', exit: 'Exit', water: 'Water trap', fire: 'Fire trap', trap: 'Trap', left: 'One way ←', right: 'One way →', deco: 'Decoration' };
 // the gadgets (gadgets.js): not in the original game, after its things in the tray
 const GADGET_NAMES = { flip: 'Flip board', cannon: 'Cannon' };
 const NEW_GADGET = { flip: { dir: 1, ang: 45, pow: 5 }, cannon: { aim: 45, pow: 6 } };
@@ -54,7 +58,7 @@ export class Editor {
     this.sel = null;            // { t: 'terrain' | 'object', i }: the main one picked
     this.more = [];             // the others picked with it, same shape
     this.marquee = null;        // the box being dragged out in the Select tool
-    this.opts = { piece: null, lump: 'mixed', paint: 8, rubber: 8, stamp: 'build', dir: 1, thing: null };
+    this.opts = { piece: null, lump: 'mixed', paint: 8, rubber: 8, stamp: 'build', dir: 1, thing: null, liquid: 'water' };
     this.cam = { z: 4, x: 0, y: 0 };
     this.show = { trails: true, falls: true };
     this.undoStack = []; this.redoStack = [];
@@ -98,6 +102,7 @@ export class Editor {
         <div class="ed-view">
           <canvas></canvas>
           <div class="ed-selbar" hidden></div>
+          <div class="ed-gadbar" hidden></div>
           <div class="ed-status"></div>
         </div>
         <div class="ed-tools">${TOOLS.map(([k, t]) => `<button type="button" data-tool="${k}">${t}</button>`).join('')}</div>
@@ -108,7 +113,7 @@ export class Editor {
     this.q = q;
     this.homeEl = q('.ed-home'); this.mainEl = q('.ed-main');
     this.canvas = q('.ed-view canvas'); this.ctx = this.canvas.getContext('2d');
-    this.viewEl = q('.ed-view'); this.selbar = q('.ed-selbar'); this.statusEl = q('.ed-status');
+    this.viewEl = q('.ed-view'); this.selbar = q('.ed-selbar'); this.gadbar = q('.ed-gadbar'); this.statusEl = q('.ed-status');
     this.tray = q('.ed-tray'); this.modal = q('.ed-modal'); this.dialog = q('.ed-dialog');
     this.world = document.createElement('canvas');
     this.world.width = WORLD_W; this.world.height = WORLD_H;
@@ -313,7 +318,7 @@ export class Editor {
 
   /** After any change: rebuild, redraw, and work out the trails and falls a moment later. */
   changed() {
-    this.spec.v = this.spec.objects.some((o) => o.k) ? 2 : 1; // gadgets: a level older copies of the game can't read
+    this.spec.v = version(this.spec); // gadgets, water: a level older copies of the game can't read
     this.rebuild();
     this.draw();
     clearTimeout(this.analyseTimer);
@@ -485,8 +490,8 @@ export class Editor {
     // where a picked flip board or cannon sends a lemming
     for (const s of this.all()) {
       const it = this.item(s);
-      if (s.t !== 'object' || !it?.k) continue;
-      const gi = this.spec.objects.slice(0, s.i).filter((o) => o.k).length;
+      if (s.t !== 'object' || !isGadget(it)) continue;
+      const gi = this.spec.objects.slice(0, s.i).filter(isGadget).length;
       if (!this.shots.has(gi)) this.shots.set(gi, shot(this.built.level, gi));
       const r = this.shots.get(gi);
       if (!r) continue;
@@ -502,7 +507,25 @@ export class Editor {
       c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,0.85)'; c.strokeText(label, ex, ey - 6);
       c.fillStyle = col; c.fillText(label, ex, ey - 6);
     }
+    // water and lava: the surface of a picked one, and any that would run straight out
+    this.spec.objects.forEach((o, n) => {
+      const f = isLiquid(o) && this.built.liquids[n];
+      if (!f) return;
+      if (!f.n) {
+        const [px, py] = S(f.x + 0.5, f.y - 3);
+        c.strokeStyle = '#000'; c.lineWidth = 4; c.beginPath(); c.moveTo(px - 6, py - 6); c.lineTo(px + 6, py + 6); c.moveTo(px + 6, py - 6); c.lineTo(px - 6, py + 6); c.stroke();
+        c.strokeStyle = '#ff4a4a'; c.lineWidth = 2; c.stroke();
+        c.font = '600 11px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+        c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,0.85)'; c.strokeText('RUNS OUT', px, py - 8);
+        c.fillStyle = '#ff4a4a'; c.fillText('RUNS OUT', px, py - 8);
+      } else if (this.isSel('object', n)) {
+        const [x0, y] = S(f.box.x, f.s), [x1] = S(f.box.x + f.box.w, f.s);
+        c.strokeStyle = '#000'; c.lineWidth = 3; c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke();
+        c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.setLineDash([6, 4]); c.stroke(); c.setLineDash([]);
+      }
+    });
     // the selection
+    this.placeGadbar();
     for (const { box, grouped } of this.selBoxes()) {
       const [x0, y0] = S(box.x, box.y);
       c.strokeStyle = '#000'; c.lineWidth = 3; c.strokeRect(x0 - 1, y0 - 1, box.w * z + 2, box.h * z + 2);
@@ -546,6 +569,7 @@ export class Editor {
   boxOf(s) {
     if (s.t === 'object') {
       const o = this.spec.objects[s.i];
+      if (isLiquid(o)) return this.built.liquids[s.i]?.box ?? null;
       if (o?.k) return gadgetBox(o);
       const d = this.dos.set(this.spec.set).objects[o?.id];
       return o && d ? { x: o.x, y: o.y, w: d.w, h: d.h } : null;
@@ -578,7 +602,13 @@ export class Editor {
     const set = this.dos.set(this.spec.set);
     const inBox = (b) => b && x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
     const tests = [];
-    for (let i = this.spec.objects.length - 1; i >= 0; i--) tests.push({ t: 'object', i, ok: inBox(this.boxOf({ t: 'object', i })) });
+    const at = this.built.liquidAt, px = Math.floor(x), py = Math.floor(y);
+    for (let i = this.spec.objects.length - 1; i >= 0; i--) {
+      // water and lava: where it is (or, if it all runs out, its mark)
+      const f = isLiquid(this.spec.objects[i]) && this.built.liquids[i];
+      const ok = f ? (f.n ? at && px >= 0 && py >= 0 && px < WORLD_W && py < WORLD_H && at[py * WORLD_W + px] === i : inBox(f.box)) : inBox(this.boxOf({ t: 'object', i }));
+      tests.push({ t: 'object', i, ok });
+    }
     const hidden = [];
     for (let i = this.spec.terrain.length - 1; i >= 0; i--) {
       const it = this.spec.terrain[i], b = this.built.boxes[i];
@@ -606,6 +636,7 @@ export class Editor {
   shift(it, dx, dy) {
     if (it.pts) it.pts = it.pts.map(([x, y]) => [x + dx, y + dy]);
     else { it.x += dx; it.y += dy; }
+    if (isLiquid(it)) it.s += dy;
   }
 
   // ---- undo ---------------------------------------------------------------------
@@ -701,6 +732,11 @@ export class Editor {
         <span class="ed-hint">Tap where a lemming would stand. Tap the top of a staircase to add another.</span></div>`;
       for (const b of t.querySelectorAll('[data-stamp]')) b.addEventListener('click', () => { this.opts.stamp = b.dataset.stamp; this.trayFor('stamps'); });
       for (const b of t.querySelectorAll('[data-dir]')) b.addEventListener('click', () => { this.opts.dir = +b.dataset.dir; this.trayFor('stamps'); });
+    } else if (tool === 'water') {
+      const k = this.opts.liquid;
+      t.innerHTML = `<div class="ed-row">${[['water', 'Water'], ['lava', 'Lava']].map(([v, l]) => `<button type="button" data-liquid="${v}" class="ed-liquid ed-${v} ${k === v ? 'on' : ''}">${l}</button>`).join('')}
+        <span class="ed-hint">Tap inside a hollow where you want the top of the ${k} to be. Drag in it to make it fuller or emptier. It stays put until a lemming digs, bashes, mines or blows a way out: then it pours out, fills whatever's below and ${k === 'lava' ? 'burns' : 'drowns'} any lemming it covers.</span></div>`;
+      for (const b of t.querySelectorAll('[data-liquid]')) b.addEventListener('click', () => { this.opts.liquid = b.dataset.liquid; this.trayFor('water'); });
     } else if (tool === 'things') {
       const kinds = objectKinds(dos, set);
       t.innerHTML = `<div class="ed-strip">${kinds.map((k) => `<button type="button" data-thing="${k.id}" class="${this.opts.thing === k.id ? 'on' : ''}"><img alt="" src="${this.objectThumb(k.id)}"><span>${THING_NAMES[k.kind]}</span></button>`).join('')}${
@@ -713,7 +749,8 @@ export class Editor {
   /** The buttons for the selected thing, over the top of the view. */
   selection() {
     const it = this.item();
-    const sb = this.selbar;
+    const sb = this.selbar, gb = this.gadbar;
+    gb.hidden = true;
     if (!it) { sb.hidden = true; return; }
     const b = (act, label, on, title = '') => `<button type="button" data-act="${act}" class="${on ? 'on' : ''}" title="${title}">${label}</button>`;
     let html = b('left', '◀', false, 'Nudge left') + b('up', '▲', false, 'Nudge up') + b('down', '▼', false, 'Nudge down') + b('right', '▶', false, 'Nudge right');
@@ -732,14 +769,34 @@ export class Editor {
     } else if (it.k === 'stamp') {
       html += b('dir', it.dir < 0 ? '← Left' : 'Right →', false, 'Which way');
       if (it.s === 'build') html += b('less', '−', false, 'Fewer staircases') + `<span class="ed-n">${it.n ?? 1}</span>` + b('more', '+', false, 'Another staircase');
-    } else if (it.k === 'flip') {
-      html += b('gdir', it.dir < 0 ? '← Left' : 'Right →', false, 'Which way it throws')
-        + b('ang-', '−', false, 'Lower') + `<span class="ed-n">${it.ang}°</span>` + b('ang+', '+', false, 'Steeper')
-        + b('pow-', '−', false, 'Weaker') + `<span class="ed-n">Power ${it.pow}</span>` + b('pow+', '+', false, 'Stronger');
-    } else if (it.k === 'cannon') {
-      html += b('gdir', '↔ Mirror', false, 'Aim it the other way')
-        + b('aim+', '↶', false, 'Aim round to the left') + `<span class="ed-n">Aim ${it.aim}°</span>` + b('aim-', '↷', false, 'Aim round to the right')
-        + b('pow-', '−', false, 'Weaker') + `<span class="ed-n">Power ${it.pow}</span>` + b('pow+', '+', false, 'Stronger');
+    } else if (isGadget(it)) {
+      // its aim and power go in their own box next to it (placed by paint)
+      const row = (h) => `<div class="ed-gadrow">${h}</div>`;
+      gb.innerHTML = it.k === 'flip'
+        ? row(b('gdir', it.dir < 0 ? '← Left' : 'Right →', false, 'Which way it throws'))
+          + row(b('ang-', '−', false, 'Lower') + `<span class="ed-n">Angle ${it.ang}°</span>` + b('ang+', '+', false, 'Steeper'))
+          + row(b('pow-', '−', false, 'Weaker') + `<span class="ed-n">Power ${it.pow}</span>` + b('pow+', '+', false, 'Stronger'))
+        : row(b('aim+', '↶', false, 'Aim round to the left') + `<span class="ed-n">Aim ${it.aim}°</span>` + b('aim-', '↷', false, 'Aim round to the right'))
+          + row(b('pow-', '−', false, 'Weaker') + `<span class="ed-n">Power ${it.pow}</span>` + b('pow+', '+', false, 'Stronger'))
+          + row(b('gdir', '↔ Mirror', false, 'Aim it the other way'));
+      gb.hidden = false;
+      for (const el of gb.querySelectorAll('[data-act]')) el.addEventListener('click', () => this.selAction(el.dataset.act));
+      this.placeGadbar();
+    } else if (isLiquid(it)) {
+      // how full it is, in its own box next to it (placed by paint)
+      const row = (h) => `<div class="ed-gadrow">${h}</div>`;
+      gb.innerHTML = row(b('fuller', '▲ Fuller', false, 'Fill it higher'))
+        + row(`<span class="ed-n ed-depth">${this.depthText()}</span>`)
+        + row(b('emptier', '▼ Emptier', false, 'Not so full'))
+        + row(b('brim', 'Fill to the top', false, 'As full as it can be without spilling'))
+        + row(b('liquid', it.k === 'lava' ? 'Make it water' : 'Make it lava'));
+      gb.hidden = false;
+      for (const el of gb.querySelectorAll('[data-act]')) {
+        const act = el.dataset.act;
+        if (act === 'fuller' || act === 'emptier') this.holdRepeat(el, () => this.fill(act === 'fuller' ? -1 : 1));
+        else el.addEventListener('click', () => this.selAction(act));
+      }
+      this.placeGadbar();
     } else if (this.sel.t === 'object') {
       html += b('fv', '↕ Flip', it.fv) + b('behind', 'Behind', it.behind, 'Behind the ground');
     }
@@ -754,6 +811,61 @@ export class Editor {
       if (['left', 'right', 'up', 'down'].includes(act)) this.holdRepeat(el, () => this.nudge(act));
       else el.addEventListener('click', () => this.selAction(act));
     }
+  }
+
+  /** How full the picked water or lava is, for its box. */
+  depthText() {
+    const f = this.built.liquids[this.sel?.i];
+    if (!f) return '';
+    if (!f.n) return 'Runs out';
+    const deep = f.y - f.s + 1;
+    return f.full ? `Full · ${deep} deep` : `${deep} deep`;
+  }
+
+  /** After its level changed: the depth shown in the picked liquid's box. */
+  liquidShown() {
+    const el = this.gadbar.querySelector('.ed-depth');
+    if (el) el.textContent = this.depthText();
+    this.placeGadbar();
+  }
+
+  /** Picked water or lava: a pixel fuller (-1) or emptier (1), within what it can hold. */
+  fill(dy) {
+    const it = this.item(), f = this.built.liquids[this.sel?.i];
+    if (!isLiquid(it) || !f) return;
+    it.s = Math.max(0, Math.min(f.y, f.s + dy));
+    this.changed();
+    this.settle();
+    this.liquidShown();
+  }
+
+  /** Water or lava as it really is: on the bottom of its hollow, filled to a surface it can hold. */
+  settle(n = this.sel?.i) {
+    const it = this.spec.objects[n], f = this.built.liquids[n];
+    if (!isLiquid(it) || !f?.n) return;
+    if (it.x === f.x && it.y === f.y && it.s === f.s) return;
+    it.x = f.x; it.y = f.y; it.s = f.s;
+    this.changed();
+  }
+
+  /** Puts the gadget box just below the picked gadget (above it if there's no room), inside the view. */
+  placeGadbar() {
+    const gb = this.gadbar;
+    if (gb.hidden || !this.sel) return;
+    const box = this.boxOf(this.sel);
+    if (!box) return;
+    const { z, x: cx, y: cy } = this.cam, pad = 6, gap = 8;
+    const x0 = (box.x - cx) * z, y0 = (box.y - cy) * z, x1 = x0 + box.w * z, y1 = y0 + box.h * z;
+    const w = gb.offsetWidth, h = gb.offsetHeight, top = this.selbar.hidden ? pad : this.selbar.offsetTop + this.selbar.offsetHeight + pad;
+    let y = y1 + gap;
+    if (y + h > this.viewH - pad) y = y0 - gap - h;
+    if (y < top) {
+      // no room above or below: beside it instead
+      y = Math.max(top, Math.min(this.viewH - pad - h, (y0 + y1 - h) / 2));
+      const right = x1 + gap;
+      gb.style.left = `${right + w <= this.viewW - pad ? right : Math.max(pad, x0 - gap - w)}px`;
+    } else gb.style.left = `${Math.max(pad, Math.min(this.viewW - pad - w, (x0 + x1 - w) / 2))}px`;
+    gb.style.top = `${Math.max(top, Math.min(this.viewH - pad - h, y))}px`;
   }
 
   holdRepeat(el, fn) {
@@ -793,12 +905,14 @@ export class Editor {
       case 'ang-': case 'ang+': it.ang = Math.max(10, Math.min(85, it.ang + (act.endsWith('+') ? 5 : -5))); break;
       case 'aim-': case 'aim+': it.aim = Math.max(0, Math.min(180, it.aim + (act.endsWith('+') ? 5 : -5))); break;
       case 'pow-': case 'pow+': it.pow = Math.max(1, Math.min(10, it.pow + (act.endsWith('+') ? 1 : -1))); break;
+      case 'brim': it.s = 0; this.changed(); this.settle(); this.selection(); return;
+      case 'liquid': it.k = it.k === 'lava' ? 'water' : 'lava'; break;
       case 'less': it.n = Math.max(1, (it.n ?? 1) - 1); break;
       case 'more': it.n = Math.min(40, (it.n ?? 1) + 1); break;
       case 'delete': list.splice(this.sel.i, 1); this.setAll([]); break;
       case 'copy': {
         const c = structuredClone(it);
-        this.shift(c, 8, it.k === 'stamp' || isGadget(it) ? 0 : 8);
+        this.shift(c, 8, it.k === 'stamp' || isGadget(it) || isLiquid(it) ? 0 : 8);
         list.push(c);
         this.setAll([{ t: this.sel.t, i: list.length - 1 }]);
         break;
@@ -836,7 +950,7 @@ export class Editor {
         for (const s of sorted) {
           const c = structuredClone(this.item(s));
           if (c.g) { if (!groups.has(c.g)) groups.set(c.g, next++); c.g = groups.get(c.g); }
-          this.shift(c, 8, c.k === 'stamp' || isGadget(c) ? 0 : 8);
+          this.shift(c, 8, c.k === 'stamp' || isGadget(c) || isLiquid(c) ? 0 : 8);
           lists[s.t].push(c);
           out.push({ t: s.t, i: lists[s.t].length - 1 });
         }
@@ -881,6 +995,8 @@ export class Editor {
       } else if (isGadget(it)) {
         // a gadget stands on its own spot: moved across and turned round, but not upside down
         if (horizontal) { it.x = lo + hi - 1 - it.x; if (it.k === 'flip') it.dir = -it.dir; else it.aim = 180 - it.aim; } else stuck++;
+      } else if (isLiquid(it)) {
+        if (horizontal) it.x = lo + hi - 1 - it.x; else stuck++;
       } else if (horizontal) {
         it.x = lo + hi - (it.x + b.w);
         if (it.k === 'piece') { if (it.fh) delete it.fh; else it.fh = true; }
@@ -895,7 +1011,7 @@ export class Editor {
       }
     }
     if (objects) this.toast('Turned them round, but things like exits can only be moved across, not mirrored.');
-    else if (stuck) this.toast('Skill stamps and gadgets stay where they are when you flip upside down.');
+    else if (stuck) this.toast('Skill stamps, gadgets, water and lava stay where they are when you flip upside down.');
   }
 
   select(sel) { this.setAll(sel ? this.withGroup(sel) : []); this.selection(); this.draw(); }
@@ -1007,8 +1123,13 @@ export class Editor {
       }
       return g;
     }
-    // on the selected thing (or, moving, on anything): drag it
     const h = this.hit(w.x, w.y);
+    // the water tool, in water or lava: drag its surface up or down
+    if (tool === 'water' && !shift && h?.t === 'object' && isLiquid(this.item(h))) {
+      if (!this.isSel(h.t, h.i)) this.select(h);
+      return { ...g, kind: 'level', snapped: false };
+    }
+    // on the selected thing (or, moving, on anything): drag it
     const onSel = h && this.isSel(h.t, h.i);
     if (shift && h && tool !== 'stamps') return { ...g, kind: 'tap', hit: h, toggle: true };
     if (onSel || (tool === 'move' && h)) {
@@ -1025,6 +1146,17 @@ export class Editor {
     if (g.kind === 'marquee') {
       this.marquee = { x0: g.w0.x, y0: g.w0.y, x1: w.x, y1: w.y };
       this.draw();
+      return;
+    }
+    if (g.kind === 'level') {
+      if (!g.moved) return;
+      const it = this.item(), f = this.built.liquids[this.sel.i];
+      const sy = Math.max(0, Math.min(f?.y ?? it.y, Math.round(w.y)));
+      if (sy === f?.s && sy === it.s) return;
+      if (!g.snapped) { this.snapshot(); g.snapped = true; }
+      it.s = sy;
+      this.changed();
+      this.liquidShown();
       return;
     }
     if (g.kind === 'pan') {
@@ -1051,13 +1183,15 @@ export class Editor {
 
   end(g) {
     if (g.kind === 'tap') this.tap(g.w0, g.hit, g.toggle);
+    else if (g.kind === 'level' && g.snapped) { this.settle(); this.liquidShown(); }
     else if (g.kind === 'marquee') { const m = this.marquee; this.marquee = null; if (m) this.pickInside(m); }
     else if (g.kind === 'stroke') {
       if (this.spec.terrain.length === g.count0) this.undoStack.pop();
       this.cursor = null;
       this.changed();
     } else if (g.kind === 'drag' && g.snapped) {
-      // gadgets dropped go onto the ground there
+      // gadgets dropped go onto the ground there; water and lava, onto the bottom of the hollow
+      for (const s of this.all()) if (isLiquid(this.item(s))) this.settle(s.i);
       let moved = false;
       for (const s of this.all()) {
         const it = this.item(s);
@@ -1075,7 +1209,7 @@ export class Editor {
   /** A second finger came down mid-stroke: that was the start of a pinch, not drawing. */
   cancelGesture(g) {
     if (g.kind === 'stroke') { this.spec.terrain.length = g.count0; this.undoStack.pop(); this.changed(); }
-    if (g.kind === 'drag' && g.snapped) this.undo();
+    if ((g.kind === 'drag' || g.kind === 'level') && g.snapped) this.undo();
     if (g.kind === 'marquee') { this.marquee = null; this.draw(); }
   }
 
@@ -1107,6 +1241,25 @@ export class Editor {
       const oy = kind === 'exit' ? standY(dos, this.spec.set, this.opts.thing, this.ground(x, y)) : y - (d.h >> 1);
       this.spec.objects.push({ id: this.opts.thing, x: x - (d.w >> 1), y: oy });
       this.setAll([{ t: 'object', i: this.spec.objects.length - 1 }]);
+    } else if (this.tool === 'water') {
+      if (hit && isLiquid(this.item(hit))) { this.select(hit); return; }
+      // the hollow there, filled up to where it was tapped
+      this.snapshot();
+      this.spec.objects.push({ k: this.opts.liquid, x, y, s: y });
+      const n = this.spec.objects.length - 1;
+      this.changed();
+      const f = this.built.liquids[n];
+      if (!f?.n || f.y - f.s < 1) { // nothing (or a film a pixel deep) stays there
+        this.spec.objects.pop();
+        this.undoStack.pop();
+        this.changed();
+        this.toast(`The ${this.opts.liquid} would all run out there. Tap inside a hollow that can hold it.`);
+        return;
+      }
+      this.settle(n);
+      this.setAll([{ t: 'object', i: n }]);
+      this.selection(); this.draw();
+      return;
     } else if (this.tool === 'stamps') {
       const s = this.opts.stamp;
       // the top of a staircase going the same way: one more staircase
@@ -1441,6 +1594,7 @@ export class Editor {
 }
 
 const isGadget = (it) => it?.k === 'flip' || it?.k === 'cannon';
+// (isLiquid, from build.js: water or lava)
 
 /** Is (x, y) within r of the line through pts? */
 function near(pts, x, y, r) {

@@ -16,6 +16,9 @@
 // older copy of the game says it can't read it rather than playing it wrong:
 //   { k: 'flip', x, y, dir, ang, pow }   a flip board, (x, y) the ground in its middle
 //   { k: 'cannon', x, y, aim, pow }      a cannon, (x, y) the ground under it
+// Water and lava (liquid.js), also in the objects list; a level with any is v: 3:
+//   { k: 'water' | 'lava', x, y, s }     the hollow with (x, y) in it filled up to row s
+//                                        (to its brim, if s would overflow it)
 // Any terrain item or object may also have g: a group number. Items with the
 // same g are picked, moved, copied, flipped and deleted together in the
 // editor. It changes nothing about how the level plays.
@@ -38,7 +41,7 @@ export function newLevel(set = 0, exitY = 112) {
 
 /** Checks a level read from storage or the server; returns a clean copy, or throws. */
 export function check(spec) {
-  if (!spec || (spec.v !== 1 && spec.v !== 2)) throw new Error('not a level');
+  if (!spec || ![1, 2, 3].includes(spec.v)) throw new Error('not a level');
   const int = (v, lo, hi, d = lo) => (Number.isFinite(+v) ? Math.max(lo, Math.min(hi, Math.round(+v))) : d);
   const out = {
     v: 1, name: String(spec.name ?? '').slice(0, 40), author: String(spec.author ?? '').slice(0, 24),
@@ -65,6 +68,7 @@ export function check(spec) {
     let c;
     if (o?.k === 'flip') c = { k: 'flip', x: int(o.x, 0, WORLD_W - 1), y: int(o.y, 0, 159), dir: o.dir < 0 ? -1 : 1, ang: int(o.ang, 10, 85, 45), pow: int(o.pow, 1, 10, 5) };
     else if (o?.k === 'cannon') c = { k: 'cannon', x: int(o.x, 0, WORLD_W - 1), y: int(o.y, 0, 159), aim: int(o.aim, 0, 180, 45), pow: int(o.pow, 1, 10, 6) };
+    else if (o?.k === 'water' || o?.k === 'lava') c = { k: o.k, x: int(o.x, 0, WORLD_W - 1), y: int(o.y, 0, 159), s: int(o.s, 0, 159) };
     else {
       c = { id: int(o?.id, 0, 15), x: int(o?.x, -300, 1900), y: int(o?.y, -300, 460) };
       if (o.fv) c.fv = true;
@@ -73,9 +77,14 @@ export function check(spec) {
     if (o.g) c.g = int(o.g, 1, 9999);
     out.objects.push(c);
   }
-  if (out.objects.some((o) => o.k)) out.v = 2;
+  out.v = version(out);
   if (spec.proof && Array.isArray(spec.proof.log)) out.proof = { log: spec.proof.log.slice(0, 5000), key: String(spec.proof.key ?? '') };
   return out;
+}
+
+/** The version a level needs: 3 with water or lava, 2 with gadgets, else 1. */
+export function version(spec) {
+  return spec.objects.some((o) => o.k === 'water' || o.k === 'lava') ? 3 : spec.objects.some((o) => o.k) ? 2 : 1;
 }
 
 /** A short fingerprint of the parts of a level that change how it plays: a proof only counts for these. */

@@ -11,6 +11,10 @@ import { Game, Lemming, WORLD_W, WORLD_H } from '../game/engine.js';
 import { BRICK, drawPiece, levelPalette } from '../dos/dosdata.js';
 import { SETS, texture } from './sets.js';
 import { makeGadgets, drawGadget } from '../game/gadgets.js';
+import { fillLiquid, liquidShade, LIQUID_COLS, WATER, LAVA } from '../game/liquid.js';
+
+/** Is a level's object water or lava (liquid.js)? */
+export const isLiquid = (o) => o?.k === 'water' || o?.k === 'lava';
 
 export const STAMPS = ['build', 'bash', 'mine', 'dig', 'bomb'];
 const SKILL = { build: 'building', bash: 'bashing', mine: 'mining', dig: 'digging' };
@@ -82,7 +86,10 @@ function visibleBox(p, { x, y, fv, fh }) {
 
 /**
  * spec (see format.js) → { level (for new Game()), boxes: per terrain item
- * its bounds {x, y, w, h}, ends: per stamp where the lemming finished }.
+ * its bounds {x, y, w, h}, ends: per stamp where the lemming finished,
+ * liquids: per water or lava object (by its index in spec.objects) what it
+ * fills (fillLiquid) and its bounds, liquidAt: per pixel the object it's
+ * from (-1: none) }.
  */
 export function buildCustom(spec, dos) {
   const set = dos.set(spec.set);
@@ -118,6 +125,7 @@ export function buildCustom(spec, dos) {
 
   const objects = [], gadgets = [];
   for (const o of spec.objects) {
+    if (isLiquid(o)) continue;
     if (o.k) { gadgets.push(o); continue; }
     const d = set.objects[o.id];
     if (!d) continue;
@@ -129,6 +137,27 @@ export function buildCustom(spec, dos) {
     const [topId, dy] = SETS[spec.set].exitTop;
     if (d.effect === 'exit' && set.objects[topId]) objects.push(dos.placeObject(set.objects[topId], o.x, y + dy, 1 | 0x8000, palette));
   }
+
+  // water and lava, filling their hollows (the ground's all there now)
+  const liquids = [];
+  let liquid = null, liquidAt = null;
+  spec.objects.forEach((o, n) => {
+    if (!isLiquid(o)) return;
+    const f = fillLiquid(pix, o);
+    let x0 = f.x - 4, y0 = f.s, x1 = f.x + 4, y1 = f.y;
+    if (f.n) {
+      liquid ??= new Uint8Array(WORLD_W * WORLD_H);
+      liquidAt ??= new Int16Array(WORLD_W * WORLD_H).fill(-1);
+      const kind = o.k === 'lava' ? LAVA : WATER;
+      for (let k = 0; k < f.n; k++) {
+        const c = f.cells[k], cx = c % WORLD_W;
+        liquid[c] = kind; liquidAt[c] = n;
+        if (cx < x0) x0 = cx;
+        if (cx > x1) x1 = cx;
+      }
+    }
+    liquids[n] = { x: f.x, y: f.y, s: f.s, full: f.full, n: f.n, box: { x: x0, y: Math.min(y0, y1 - 8), w: x1 - x0 + 1, h: Math.max(y1 - y0, 8) + 1 } };
+  });
 
   // the screen starts with the first entrance in the middle
   const ent = objects.find((o) => o.kind === 'entrance');
@@ -142,7 +171,8 @@ export function buildCustom(spec, dos) {
     terrain: pix, palette, steel, objects, gadgets, oneway: [], brick: BRICK,
     frames: dos.frames, masks: dos.masks,
   };
-  return { level, boxes, ends };
+  if (liquid) level.liquid = liquid;
+  return { level, boxes, ends, liquids, liquidAt };
 }
 
 /**
@@ -245,6 +275,16 @@ export function drawLevel(level, pix = level.terrain, out = new Uint8ClampedArra
       if (!c) continue;
       const k = i * 4, col = pal[c];
       out[k] = col[0]; out[k + 1] = col[1]; out[k + 2] = col[2];
+    }
+  }
+  const wet = level.liquid;
+  if (wet) {
+    for (let y = ry0; y < ry1; y++) {
+      for (let i = y * WORLD_W + rx0, end = y * WORLD_W + rx1; i < end; i++) {
+        if (!wet[i]) continue;
+        const [r, g, b, a] = LIQUID_COLS[wet[i]][liquidShade(wet, pix, null, i, 0)], k = i * 4;
+        out[k] = out[k] * (1 - a) + r * a; out[k + 1] = out[k + 1] * (1 - a) + g * a; out[k + 2] = out[k + 2] * (1 - a) + b * a;
+      }
     }
   }
   for (const o of level.objects) if (o.front) obj(o);

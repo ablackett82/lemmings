@@ -18,6 +18,7 @@ export const WORLD_W = 1600;
 export const WORLD_H = 160;
 
 import { makeGadgets, updateGadgets, checkGadgets, fly } from './gadgets.js';
+import { makeLiquid, flowLiquid, checkLiquid, stir } from './liquid.js';
 
 const LEMMING_MIN_X = 0;
 const LEMMING_MAX_X = 1647;
@@ -25,6 +26,8 @@ const LEMMING_MAX_Y = 163;
 const HEAD_MIN_Y = -5;
 const MAX_FALLDISTANCE = 60;
 const PARTICLE_FRAMECOUNT = 52;
+// past caring about liquid (liquid.js): dying already, going home, or inside a cannon
+const SAFE_FROM_LIQUID = new Set(['drowning', 'vaporizing', 'splatting', 'exploding', 'exiting', 'incannon']);
 
 // object map values (4x4 pixel cells): 0..127 is a trap's index, 128+ an effect
 export const DOM = {
@@ -145,6 +148,8 @@ export class Game {
     this.entryTable = order ? order.map((i) => ent[i]) : [];
     this.initObjectMap();
     this.gadgets = makeGadgets(level.gadgets ?? [], this.pix);
+    this.wet = null; // liquid (liquid.js): only in levels with some
+    if (level.liquid) makeLiquid(this, level.liquid);
   }
 
   // ---- the world ------------------------------------------------------------
@@ -154,7 +159,12 @@ export class Game {
   }
   /** HasPixelAt_ClipY: above minY, look at minY instead. */
   hasPixelClip(x, y, minY) { return this.hasPixel(x, y >= minY ? y : minY); }
-  removePixel(x, y) { if (x >= 0 && y >= 0 && x < WORLD_W && y < WORLD_H) this.pix[y * WORLD_W + x] = 0; }
+  removePixel(x, y) {
+    if (x < 0 || y < 0 || x >= WORLD_W || y >= WORLD_H) return;
+    const i = y * WORLD_W + x;
+    if (this.wet && this.pix[i]) stir(this, x, y); // liquid by it can run in now
+    this.pix[i] = 0;
+  }
 
   readMap(x, y) {
     x = (x >> 2) + OM_ADD; y = (y >> 2) + OM_ADD; // >> rounds down for negatives, like "and not 3"
@@ -190,6 +200,7 @@ export class Game {
     this.checkRelease();
     this.checkLemmings();
     if (this.gadgets.length) updateGadgets(this);
+    if (this.wet) flowLiquid(this);
     this.checkNuking();
     this.updateObjects();
     this.updateParticles();
@@ -249,6 +260,7 @@ export class Game {
         this.checkObjects(L);
         if (this.gadgets.length && !L.removed) checkGadgets(this, L);
       }
+      if (this.wet && !L.removed && !SAFE_FROM_LIQUID.has(L.action)) checkLiquid(this, L);
     }
   }
 
@@ -463,7 +475,11 @@ export class Game {
     const shade = Math.max(0, Math.min(11, 12 - L.bricksLeft));
     const c = this.level.brick + shade;
     for (let x = x0; x < x0 + 6; x++) {
-      if (x >= 0 && x < WORLD_W && L.y - 1 >= 0 && L.y - 1 < WORLD_H && this.pix[(L.y - 1) * WORLD_W + x] === 0) this.pix[(L.y - 1) * WORLD_W + x] = c;
+      if (x >= 0 && x < WORLD_W && L.y - 1 >= 0 && L.y - 1 < WORLD_H && this.pix[(L.y - 1) * WORLD_W + x] === 0) {
+        const i = (L.y - 1) * WORLD_W + x;
+        this.pix[i] = c;
+        if (this.wet?.[i]) { this.wet[i] = 0; stir(this, x, L.y - 1); } // a brick laid in liquid pushes it out
+      }
     }
   }
 

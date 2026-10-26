@@ -131,7 +131,8 @@ Crystal): its own terrain pieces and objects, so it looks like an original.
 - **Stamps**: a staircase, bash tunnel, mine, dig hole or bomb crater, made by
   the engine itself (an invisible lemming given the skill), so it's exactly
   what a player could make. Tap the top of a staircase for another.
-- **Things**: entrance, exit (its top comes with it), water, fire, traps,
+- **Things**: entrance, exit (its top comes with it), water and fire traps
+  (the original game's, which stay where they are), traps,
   one-way walls, decorations.
 - **Gadgets** (at the end of Things; not in the original game, so never in
   the 120 levels, `src/game/gadgets.js`): a **flip board** throws a lemming
@@ -142,6 +143,20 @@ Crystal): its own terrain pieces and objects, so it looks like an original.
   or the arrow keys. A thrown lemming lands by the usual fall rule; floaters
   float and climbers grab walls. Picked in the editor, a gadget shows where
   it throws. A level with gadgets is saved as `v: 2`.
+- **Water** (and **lava**; not in the original game either,
+  `src/game/liquid.js`): tap inside a hollow where the top of the water
+  should be, and it fills the hollow up to there (to its brim if that's too
+  high; nothing if it would all run out). Drag in it, or use its box, to make
+  it fuller or emptier, or fill it to the top. It stays put until a lemming
+  digs, bashes, mines or blows a way out. Then it gushes out of the hole (the
+  deeper the hole, the harder), the hollow's surface goes down level, it runs
+  down slopes, fills whatever hollow it comes to (only as deep as there's water
+  for, leaving puddles in the dips it leaves behind), finds its level through
+  tunnels, and pours off the bottom of the level. A lemming it covers drowns
+  (water up to its knees; a puddle is fine); lava is thick, creeps out slowly,
+  and burns any lemming it touches. Every pixel of it is simulated, in whole
+  numbers, so games still replay exactly; liquid that's still costs nothing.
+  A level with water or lava is saved as `v: 3`.
 - **Select**: pick several things (tap to add or let go, or drag a box round
   them; shift-tap with a mouse in any tool). They then move, copy, mirror,
   flip, go to front or back, and delete together. Mirror and flip turn the
