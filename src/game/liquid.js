@@ -237,15 +237,23 @@ function spread(g, edges, free, move) {
     // on top: down a diagonal (not through a corner of ground)
     if (free(x + dir, y + 1) && !g.pix[i + dir]) { move(x, y, x + dir, y + 1); continue; }
     if (free(x - dir, y + 1) && !g.pix[i - dir]) { move(x, y, x - dir, y + 1); continue; }
-    // or along the row to the nearest way down
+    // or along the row to the nearest way down. On the ground it looks as far
+    // as the floor goes, past liquid going the same way, so the last film of a
+    // draining hollow runs out after the rest, one pixel behind another.
+    const film = g.pix[i + W], reach = film ? W : f.reach;
+    const past = (xx) => free(xx, y) || (film && xx >= 0 && xx < W && wet[y * W + xx] === kind && !still(g, y * W + xx));
     let best = 0, bestK = 0;
     for (const d of [dir, -dir]) {
-      for (let k = 1; k <= f.reach && (!best || k < bestK); k++) {
-        if (!free(x + d * k, y)) break;
+      for (let k = 1; k <= reach && (!best || k < bestK); k++) {
+        if (!past(x + d * k)) break;
         if (y + 1 >= H || free(x + d * k, y + 1)) { best = d; bestK = k; break; }
       }
     }
-    if (best) move(x, y, x + best * Math.min(bestK, f.run), y);
+    if (!best) continue;
+    let k = 0;
+    while (k < Math.min(bestK, f.run) && free(x + best * (k + 1), y)) k++;
+    if (k) move(x, y, x + best * k, y);
+    else stir(g, x, y); // (right behind liquid going that way: after it)
   }
 }
 

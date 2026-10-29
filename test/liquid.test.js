@@ -200,6 +200,19 @@ test('a pond with a lumpy bottom leaves puddles in the dips when it drains', () 
   assert.equal(amount(g, 100, 260, 0, 100), 0, 'nothing above the lips');
 });
 
+test('a flat-bottomed hollow drains dry, not leaving a film on its floor', () => {
+  // through a hole in the floor (in the middle, or at one end), or one in the side at the floor, out along a ledge
+  const ways = [[[128, 132, 60, 64]], [[104, 108, 60, 64]], [[161, 165, 40, 60]]];
+  for (const kind of [WATER, LAVA]) {
+    for (const holes of ways) {
+      const g = game(level(ground([...BOWL, [165, 300, 60, 64]]), [{ x: 130, y: 50, s: 30, kind }]));
+      for (const [x0, x1, y0, y1] of holes) for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) g.removePixel(x, y);
+      run(g, 1500);
+      assert.equal(amount(g), 0, `${kind === LAVA ? 'lava' : 'water'} out of ${holes}: none left`);
+    }
+  }
+});
+
 test('the editor fills a hollow where it\'s tapped, makes it fuller, emptier and full, and turns it to lava', async () => {
   const { loadDosFolder } = await import('../tools/dosshot.mjs');
   const { buildCustom, standY } = await import('../src/editor/build.js');
