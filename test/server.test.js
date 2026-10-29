@@ -77,3 +77,26 @@ test('the admin list shows approved levels too, so any of them can be opened and
   assert.match(page, /\/review\/FROG-123\?t=/);
   assert.equal((await worker.fetch(new Request('https://lv.test/review?key=wrong'), env)).status, 403);
 });
+
+test('a rating keeps its kind (only the four real ones), and the list says how many voted for each', async () => {
+  const env = { LEVELS: kv(), STATS: d1(), ADMIN_KEY: 'sekrit' };
+  const prepare = env.STATS.prepare;   // INSERT ... RETURNING goes through first(), which the stand-in doesn't record
+  env.STATS.prepare = (sql) => { const st = prepare(sql), first = st.first; st.first = async function () { env.STATS.ran.push([sql, this.args]); return first.call(this); }; return st; };
+  await env.LEVELS.put('index:approved', JSON.stringify([{ id: 'FROG-123', name: 'Hop', author: 'Kim', created: 1 }]));
+  await env.LEVELS.put('level:FROG-123', JSON.stringify({ id: 'FROG-123', name: 'Hop', author: 'Kim', status: 'approved' }));
+  const rate = (body) => worker.fetch(new Request('https://lv.test/api/levels/FROG-123/rating', { method: 'POST', body: JSON.stringify({ device: 'device-0001', stars: 4, ...body }) }), env);
+  const saved = () => env.STATS.ran.filter(([sql]) => /INSERT INTO ratings/.test(sql)).at(-1)[1];
+
+  assert.equal((await rate({ kind: 'mayhem' })).status, 200);
+  assert.equal(saved()[3], 'mayhem');
+  assert.equal((await rate({ kind: 'easy-peasy' })).status, 200);
+  assert.equal(saved()[3], '', 'anything else is no vote');
+  assert.equal((await rate({})).status, 200);
+  assert.equal(saved()[3], '');
+
+  // the votes come back as counts per kind
+  env.STATS.batch = async () => [{ results: [] }, { results: [{ level: 'FROG-123', stars: 4, n: 3, said: 0 }] },
+    { results: [{ level: 'FROG-123', kind: 'fun', n: 1 }, { level: 'FROG-123', kind: 'taxing', n: 2 }, { level: 'FROG-123', kind: 'bogus', n: 9 }] }];
+  const [lv] = await (await worker.fetch(new Request('https://lv.test/api/levels'), env)).json();
+  assert.deepEqual(lv.stats.votes, { fun: 1, tricky: 0, taxing: 2, mayhem: 0 });
+});

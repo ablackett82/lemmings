@@ -153,6 +153,8 @@ html, body {
 #editor .ed-home-body { flex: 1; overflow: auto; padding: 12px 16px 24px; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
 #editor .ed-sets { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
 #editor .ed-sets button { display: flex; flex-direction: column; gap: 6px; padding: 6px; align-items: stretch; }
+#editor .ed-sets .ed-random { justify-content: center; }
+#editor .ed-sets .ed-dice { font-size: 28px; line-height: 1; }
 #editor .ed-sets img { width: 100%; aspect-ratio: 4 / 1; image-rendering: pixelated; background: #000; border-radius: 4px; }
 #editor .ed-mine { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 #editor .ed-card { background: #1a1c28; border: 1px solid #2e3044; border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
@@ -248,13 +250,18 @@ html, body {
 /* in the arcade, its ⌂ button sits top left: keep the editor's buttons clear of it */
 body:has(#arcade-home) #editor .ed-bar { padding-left: calc(var(--sat-l) + 76px); }
 #ui .ui-shared-list .s { color: #ffd060; font-size: 13px; }
-#ui .ui-sort { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+#ui .ui-sort { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 10px; }
+#ui .ui-shared-list .r { color: #ffd060; font-size: 13px; font-weight: bold; padding: 6px 0; cursor: pointer; }
+#ui .ui-shared-list .r[hidden] { display: none; }
+#ui .ui-sort label { display: flex; align-items: center; gap: 8px; }
 #ui .ui-sort select { font: inherit; font-size: 16px; padding: 6px 8px; border-radius: 8px; }
 /* the rating card, and what people said */
 #ui .ui-rate, #ui .ui-said, #ui .ui-remove { width: min(520px, 94vw); }
 #ui .ui-stars { display: flex; gap: 6px; justify-content: center; }
 #ui .ui-stars button { font-size: 40px; line-height: 1; padding: 6px 10px; color: #555; background: #111; }
 #ui .ui-stars button.on { color: #ffd060; }
+#ui .ui-kinds { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+#ui .ui-kinds button.on { background: var(--green); color: #000; }
 #ui .ui-field { display: flex; flex-direction: column; gap: 4px; text-transform: none; }
 #ui .ui-field input, #ui .ui-field textarea { font: inherit; font-size: 17px; padding: 8px 10px; border-radius: 8px; border: 1px solid #44475e; background: #0c0c12; color: #fff; resize: vertical; }
 #ui .ui-said-list { display: flex; flex-direction: column; gap: 10px; max-height: 50vh; overflow: auto; }

@@ -11,7 +11,8 @@
 //   rate:day:<day>  submissions from everyone today
 //
 // STATS: plays (level, attempts, wins), ratings (one per level per device:
-// stars, name, comment; a comment shows once approved, like a level).
+// stars, kind (fun | tricky | taxing | mayhem, the voter's say on how it
+// plays), name, comment; a comment shows once approved, like a level).
 //
 // The game talks to /api/...; the approver uses /review/... from the button in
 // the Telegram message. Each review link carries a token for that one level
@@ -26,6 +27,7 @@ const PER_HOUR = 5;            // submissions per address per hour
 const PER_DAY = 40;            // submissions from everyone per day
 const COMMENTS_PER_HOUR = 10;  // comments per address per hour
 const REPORTS_PER_HOUR = 5;    // removal requests per address per hour
+const KINDS = ['fun', 'tricky', 'taxing', 'mayhem'];   // mildest first
 const ORIGINS = ['https://ablackett82.github.io'];
 const GAME = 'https://ablackett82.github.io/arcade/games/lemmings/';
 const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/; // testing on this computer
@@ -155,6 +157,7 @@ async function rate(req, env, id, url) {
   const stars = Math.round(+body.stars), device = clean(body.device, 40);
   if (!(stars >= 1 && stars <= 5) || device.length < 8) return [{ error: 'bad rating' }, 400];
   const name = clean(body.name, 24), comment = clean(body.comment, 300);
+  const kind = KINDS.includes(body.kind) ? body.kind : '';
   const rec = await env.LEVELS.get(`level:${id}`, 'json');
   if (rec?.status !== 'approved') return [{ error: 'no such level' }, 404];
   const old = await env.STATS.prepare('SELECT comment, status FROM ratings WHERE level = ? AND device = ?').bind(id, device).first();
@@ -167,28 +170,30 @@ async function rate(req, env, id, url) {
     await env.LEVELS.put(key, String(n + 1), { expirationTtl: 3700 });
   }
   const status = !comment ? 'none' : sameComment ? old.status : 'pending';
-  const row = await env.STATS.prepare(`INSERT INTO ratings (level, device, stars, name, comment, status, created) VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT (level, device) DO UPDATE SET stars = excluded.stars, name = excluded.name, comment = excluded.comment, status = excluded.status, created = excluded.created
-    RETURNING id`).bind(id, device, stars, name, comment, status, Date.now()).first();
+  const row = await env.STATS.prepare(`INSERT INTO ratings (level, device, stars, kind, name, comment, status, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (level, device) DO UPDATE SET stars = excluded.stars, kind = excluded.kind, name = excluded.name, comment = excluded.comment, status = excluded.status, created = excluded.created
+    RETURNING id`).bind(id, device, stars, kind, name, comment, status, Date.now()).first();
   if (status === 'pending' && !sameComment) await notifyComment(env, url.origin, rec, { id: row.id, stars, name, comment });
   return [{ ok: true, comment: status }, 200];
 }
 
 async function comments(env, id) {
-  const { results } = await env.STATS.prepare(`SELECT stars, name, comment, created FROM ratings WHERE level = ? AND status = 'approved' ORDER BY created DESC LIMIT 50`).bind(id).all();
+  const { results } = await env.STATS.prepare(`SELECT stars, kind, name, comment, created FROM ratings WHERE level = ? AND status = 'approved' ORDER BY created DESC LIMIT 50`).bind(id).all();
   return [results, 200];
 }
 
-/** { id: { attempts, wins, stars (average, or null), ratings, comments (shown) } } for the levels. */
+/** { id: { attempts, wins, stars (average, or null), ratings, comments (shown), votes: { fun, tricky, taxing, mayhem } } } for the levels. */
 async function statsFor(env, ids) {
-  const out = Object.fromEntries(ids.map((id) => [id, { attempts: 0, wins: 0, stars: null, ratings: 0, comments: 0 }]));
+  const out = Object.fromEntries(ids.map((id) => [id, { attempts: 0, wins: 0, stars: null, ratings: 0, comments: 0, votes: Object.fromEntries(KINDS.map((k) => [k, 0])) }]));
   if (!ids.length || !env.STATS) return out;
-  const [plays, stars] = await env.STATS.batch([
+  const [plays, stars, kinds] = await env.STATS.batch([
     env.STATS.prepare('SELECT level, attempts, wins FROM plays'),
     env.STATS.prepare(`SELECT level, AVG(stars) AS stars, COUNT(*) AS n, SUM(status = 'approved') AS said FROM ratings GROUP BY level`),
+    env.STATS.prepare(`SELECT level, kind, COUNT(*) AS n FROM ratings WHERE kind != '' GROUP BY level, kind`),
   ]);
   for (const r of plays.results) if (out[r.level]) Object.assign(out[r.level], { attempts: r.attempts, wins: r.wins });
   for (const r of stars.results) if (out[r.level]) Object.assign(out[r.level], { stars: Math.round(r.stars * 10) / 10, ratings: r.n, comments: r.said });
+  for (const r of kinds.results) if (out[r.level] && KINDS.includes(r.kind)) out[r.level].votes[r.kind] = r.n;
   return out;
 }
 

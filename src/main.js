@@ -247,16 +247,18 @@ function main() {
   }
 
   // ---- stars and comments on shared levels ----
-  function askRating(c) {
+  function askRating(c, fromList = false) {
     ui.showRate(`${c.spec.name || 'This level'} by ${c.spec.author || 'someone'}`, shared.myRating(c.code) ?? { name: shared.author() });
+    ui.on.rateSkip = fromList ? openShared : null;
     ui.on.rateSend = async (r) => {
       ui.rateMessage('Sending…');
       try {
         const said = await shared.rate(c.code, r);
         if (r.name && !shared.author()) shared.setAuthor(r.name);
         ui.close();
-        if (custom === c && mode === 'result') customResult(true);
-        ui.toast(said === 'pending' ? 'Thanks! Your comment will show once it’s checked.' : 'Thanks for the stars!');
+        if (fromList) openShared();
+        else if (custom === c && mode === 'result') customResult(true);
+        ui.toast(said === 'pending' ? 'Thanks! Your comment will show once it’s checked.' : 'Thanks for the vote!');
       } catch (err) { ui.rateMessage(err.message); }
     };
   }
@@ -299,7 +301,7 @@ function main() {
     ui.showShared([], new Set(), 'Loading…');
     try {
       const list = await shared.sharedList();
-      ui.showShared(list.map((l) => ({ ...l, stats: { attempts: 0, wins: 0, stars: null, ratings: 0, comments: 0, ...l.stats }, picture: shared.previewUrl(l.id) })), shared.sharedDone(), undefined, shared.sortOrder());
+      ui.showShared(list.map((l) => ({ ...l, stats: { attempts: 0, wins: 0, stars: null, ratings: 0, comments: 0, votes: {}, ...l.stats }, picture: shared.previewUrl(l.id), rated: !!shared.myRating(l.id) })), shared.sharedDone(), undefined, shared.sortOrder(), shared.kindFilter(), shared.myCodes(), shared.hideMine());
     } catch (err) { ui.showShared([], new Set(), err.message); }
   }
 
@@ -314,6 +316,9 @@ function main() {
   }
   ui.on.pickShared = (code) => openSharedLevel(code);
   ui.on.sort = (s) => shared.setSortOrder(s);
+  ui.on.filter = (k) => shared.setKindFilter(k);
+  ui.on.hideMine = (b) => shared.setHideMine(b);
+  ui.on.rateShared = (it) => askRating({ code: it.id, spec: { name: it.name, author: it.author } }, true);
 
   // ---- the menus ----
   ui.on.option = setOption;

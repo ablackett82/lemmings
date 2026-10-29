@@ -6,7 +6,7 @@ import { check } from './format.js';
 
 export const API = 'https://lemmings-levels.ablackett.workers.dev';
 const MINE = 'lemmings.mine', AUTHOR = 'lemmings.author', DONE = 'lemmings.shared-done';
-const DEVICE = 'lemmings.device', RATED = 'lemmings.rated', SORT = 'lemmings.shared-sort';
+const DEVICE = 'lemmings.device', RATED = 'lemmings.rated', SORT = 'lemmings.shared-sort', FILTER = 'lemmings.shared-kind', HIDE = 'lemmings.shared-hide-mine';
 
 const read = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
 const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
@@ -33,13 +33,41 @@ export const setAuthor = (s) => write(AUTHOR, s);
 export const sharedDone = () => new Set(read(DONE, []));
 export function markSharedDone(code) { const s = sharedDone(); s.add(code); write(DONE, [...s]); }
 
-// this device's ratings, by code: { stars, name, comment }
+// this device's ratings, by code: { stars, kind?, name, comment }
 export const myRating = (code) => read(RATED, {})[code] ?? null;
 function saveRating(code, r) { const all = read(RATED, {}); all[code] = r; write(RATED, all); }
 
 // how Our levels is sorted here: 'new' | 'name' | 'stars' | 'success'
 export const sortOrder = () => read(SORT, 'new');
 export const setSortOrder = (s) => write(SORT, s);
+
+// Our levels shows one kind of level: 'all' | 'none' (nobody's said yet) | one of KINDS
+export const kindFilter = () => read(FILTER, 'all');
+export const setKindFilter = (s) => write(FILTER, s);
+
+// whether Our levels leaves out the levels this device published
+export const hideMine = () => read(HIDE, false) === true;
+export const setHideMine = (b) => write(HIDE, !!b);
+/** The codes of the levels published from this device. */
+export const myCodes = () => new Set(myLevels().map((e) => e.pub?.code).filter(Boolean));
+
+/** What voters can call a level, mildest first (as the original game's ratings go). */
+export const KINDS = ['fun', 'tricky', 'taxing', 'mayhem'];
+export const KIND_NAMES = { fun: 'Fun', tricky: 'Tricky', taxing: 'Taxing', mayhem: 'Mayhem' };
+
+/** The average of a level's votes, 0 (all fun) to 3 (all mayhem), or null if nobody has said. */
+export function kindScore(st) {
+  const v = st?.votes;
+  if (!v) return null;
+  const n = KINDS.reduce((s, k) => s + (v[k] || 0), 0);
+  return n ? KINDS.reduce((s, k, i) => s + i * (v[k] || 0), 0) / n : null;
+}
+
+/** A level's type from the average of its votes: one of KINDS, or null if nobody has said. */
+export function kindOf(st) {
+  const score = kindScore(st);
+  return score === null ? null : KINDS[Math.min(KINDS.length - 1, Math.round(score))];
+}
 
 /** A random id for this device, so its rating of a level replaces its last one. */
 function device() {
@@ -98,7 +126,7 @@ export function recordPlay(code, won) {
   }).catch(() => {});
 }
 
-/** Rates a shared level: { stars, name, comment }. Returns 'none' | 'pending' | 'approved' (the comment's state). */
+/** Rates a shared level: { stars, kind?, name, comment }. Returns 'none' | 'pending' | 'approved' (the comment's state). */
 export async function rate(code, r) {
   const res = await call(`/api/levels/${encodeURIComponent(code)}/rating`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...r, device: device() }),
@@ -107,13 +135,15 @@ export async function rate(code, r) {
   return res.comment;
 }
 
-/** What people said about a level (approved comments): [{ stars, name, comment, created }]. */
+/** What people said about a level (approved comments): [{ stars, kind, name, comment, created }]. */
 export const comments = (code) => call(`/api/levels/${encodeURIComponent(code)}/comments`);
 
-/** "★ 4.2 (5) · 12 goes · 4 won (33%)", for a shared level's stats. */
+/** "★ 4.2 (5) · Tricky · 12 goes · 4 won (33%)", for a shared level's stats. */
 export function statsLine(st) {
   if (!st) return '';
   const parts = [st.ratings ? `★ ${st.stars} (${st.ratings})` : 'No stars yet'];
+  const kind = kindOf(st);
+  if (kind) parts.push(KIND_NAMES[kind]);
   parts.push(st.attempts === 1 ? '1 go' : `${st.attempts} goes`);
   if (st.attempts) parts.push(`${st.wins} won (${Math.round(100 * st.wins / st.attempts)}%)`);
   return parts.join(' · ');

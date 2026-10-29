@@ -3,7 +3,7 @@
 // the buttons on the screens between levels, and the clear buttons over the
 // skill panel.
 import { HD_DEFS, HD_LABELS, hdIcon } from './render/hdicons.js';
-import { statsLine } from './editor/store.js';
+import { statsLine, kindOf, kindScore, KINDS, KIND_NAMES } from './editor/store.js';
 
 // Our levels' orders: [value, label, compare]
 const rate = (s) => (s.attempts ? s.wins / s.attempts : null);
@@ -12,6 +12,8 @@ const SORTS = [
   ['todo', 'Not done yet first', (a, b, done) => done.has(a.id) - done.has(b.id)],
   ['done', 'Done first', (a, b, done) => done.has(b.id) - done.has(a.id)],
   ['name', 'Name', (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })],
+  ['mild', 'Mildest first', (a, b) => (kindScore(a.stats) ?? 9) - (kindScore(b.stats) ?? 9)],
+  ['wild', 'Wildest first', (a, b) => (kindScore(b.stats) ?? -1) - (kindScore(a.stats) ?? -1)],
   ['stars', 'Most stars', (a, b) => (b.stats.stars ?? 0) - (a.stats.stars ?? 0) || b.stats.ratings - a.stats.ratings],
   ['easy', 'Most won', (a, b) => (rate(b.stats) ?? -1) - (rate(a.stats) ?? -1)],
   ['hard', 'Least won', (a, b) => (rate(a.stats) ?? 2) - (rate(b.stats) ?? 2)],
@@ -77,7 +79,11 @@ export class UI {
       <div class="ui-panel ui-shared" hidden>
         <h2>Our levels</h2>
         <p class="ui-note ui-shared-status"></p>
-        <label class="ui-sort">Sort by <select>${SORTS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>
+        <div class="ui-sort">
+          <label>Sort by <select class="ui-sort-by">${SORTS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>
+          <label>Show <select class="ui-sort-kind"><option value="all">All types</option>${KINDS.map((k) => `<option value="${k}">${KIND_NAMES[k]}</option>`).join('')}<option value="none">Not voted on yet</option></select></label>
+          <label class="ui-sort-mine"><input type="checkbox"> Hide my own levels</label>
+        </div>
         <div class="ui-shared-list"></div>
         <button class="ui-close" type="button">Back</button>
       </div>
@@ -85,6 +91,8 @@ export class UI {
         <h2>Did you like it?</h2>
         <p class="ui-note ui-rate-title"></p>
         <div class="ui-stars">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-star="${n}" aria-label="${n} star${n > 1 ? 's' : ''}">★</button>`).join('')}</div>
+        <p class="ui-note">How does it play? (if you like)</p>
+        <div class="ui-kinds">${KINDS.map((k) => `<button type="button" data-kind="${k}">${KIND_NAMES[k]}</button>`).join('')}</div>
         <label class="ui-field">Your name (if you like) <input class="ui-rate-name" maxlength="24" autocomplete="off"></label>
         <label class="ui-field">Say something about it (if you like) <textarea class="ui-rate-comment" maxlength="300" rows="3"></textarea></label>
         <p class="ui-note">Comments show for everyone once they’ve been checked.</p>
@@ -138,12 +146,16 @@ export class UI {
     pick.addEventListener('change', () => { if (pick.files.length) this.on.loadFiles?.([...pick.files]); pick.value = ''; });
     this.q('.ui-dos-forget').addEventListener('click', () => this.on.forgetFiles?.());
     // Our levels' order
-    this.q('.ui-sort select').addEventListener('change', (e) => { this.on.sort?.(e.target.value); this.listShared(); });
+    this.q('.ui-sort-by').addEventListener('change', (e) => { this.on.sort?.(e.target.value); this.listShared(); });
+    this.q('.ui-sort-kind').addEventListener('change', (e) => { this.on.filter?.(e.target.value); this.listShared(); });
+    this.q('.ui-sort-mine input').addEventListener('change', (e) => { this.on.hideMine?.(e.target.checked); this.listShared(); });
     // the rating card
-    this.stars = 0;
+    this.stars = 0; this.kind = '';
     for (const b of el.querySelectorAll('[data-star]')) b.addEventListener('click', () => this.setStars(+b.dataset.star));
+    // tap a kind again to take it back
+    for (const b of el.querySelectorAll('[data-kind]')) b.addEventListener('click', () => this.setKind(this.kind === b.dataset.kind ? '' : b.dataset.kind));
     this.q('.ui-rate-send').addEventListener('click', () => {
-      this.on.rateSend?.({ stars: this.stars, name: this.q('.ui-rate-name').value.trim(), comment: this.q('.ui-rate-comment').value.trim() });
+      this.on.rateSend?.({ stars: this.stars, kind: this.kind, name: this.q('.ui-rate-name').value.trim(), comment: this.q('.ui-rate-comment').value.trim() });
     });
     this.q('.ui-rate-skip').addEventListener('click', () => { this.close(); this.on.rateSkip?.(); });
     // asking for a level to come down: the red button wants two taps
@@ -224,11 +236,16 @@ export class UI {
 
   /**
    * Our levels: items [{ id, name, author, created, picture, stats }], done (Set of ids),
-   * or a message instead; sort: the order to show them in (see SORTS).
+   * or a message instead; sort: the order to show them in (see SORTS);
+   * kind: which type to show ('all', 'none' or one of KINDS);
+   * mine: ids of the ones this device made, hide: whether to leave those out.
    */
-  showShared(items, done, message, sort) {
-    this.shared = { items: items ?? [], done };
-    if (sort) this.q('.ui-sort select').value = sort;
+  showShared(items, done, message, sort, kind, mine = new Set(), hide = false) {
+    this.shared = { items: items ?? [], done, mine };
+    this.q('.ui-sort-mine input').checked = hide;
+    this.q('.ui-sort-mine').hidden = !mine.size;
+    if (sort) this.q('.ui-sort-by').value = sort;
+    if (kind) this.q('.ui-sort-kind').value = kind;
     this.q('.ui-sort').hidden = !this.shared.items.length;
     this.q('.ui-shared-status').textContent = message ?? (items.length ? 'Levels made by people who play this. Tap one to play it.' : 'No levels shared yet. Make one in Make levels!');
     this.listShared();
@@ -237,31 +254,44 @@ export class UI {
 
   listShared() {
     const list = this.q('.ui-shared-list');
-    const { items, done } = this.shared ?? { items: [], done: new Set() };
-    const by = SORTS.find(([v]) => v === this.q('.ui-sort select').value) ?? SORTS[0];
+    const { items, done, mine } = this.shared ?? { items: [], done: new Set(), mine: new Set() };
+    const hide = this.q('.ui-sort-mine input').checked;
+    const by = SORTS.find(([v]) => v === this.q('.ui-sort-by').value) ?? SORTS[0];
+    const show = this.q('.ui-sort-kind').value;
+    const shown = items.filter((it) => !(hide && mine.has(it.id)) && (show === 'all' || (kindOf(it.stats) ?? 'none') === show));
     list.innerHTML = '';
-    for (const it of items.slice().sort((a, b) => by[2](a, b, done) || b.created - a.created)) {
+    if (items.length && !shown.length) list.innerHTML = '<p class="ui-note">None of those yet.</p>';
+    for (const it of shown.slice().sort((a, b) => by[2](a, b, done) || b.created - a.created)) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.innerHTML = `<span class="pic"><img alt="" loading="lazy"></span><span class="t"></span><span class="a"></span><span class="s"></span><span class="c"></span>`;
+      b.innerHTML = `<span class="pic"><img alt="" loading="lazy"></span><span class="t"></span><span class="a"></span><span class="s"></span><span class="c"></span><span class="r" role="button" tabindex="0" hidden></span>`;
       if (done.has(it.id)) { b.classList.add('done'); b.querySelector('.pic').insertAdjacentHTML('beforeend', '<span class="tick" aria-label="Done">✓</span>'); }
       b.querySelector('img').src = it.picture;
       b.querySelector('.t').textContent = it.name;
       b.querySelector('.a').textContent = `by ${it.author} · ${it.id}`;
       b.querySelector('.s').textContent = statsLine(it.stats);
       b.querySelector('.c').textContent = done.has(it.id) ? '✓ You’ve done this one' : '';
+      // a level you've done can be voted on from here, without playing it again
+      const r = b.querySelector('.r');
+      if (done.has(it.id) && !mine.has(it.id)) {
+        r.hidden = false; r.textContent = it.rated ? '★ Change my vote' : '★ Vote on it';
+        const go = (e) => { e.stopPropagation(); e.preventDefault(); this.on.rateShared?.(it); };
+        r.addEventListener('click', go);
+        r.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') go(e); });
+      }
       b.addEventListener('click', () => this.on.pickShared?.(it.id));
       list.appendChild(b);
     }
   }
 
   /** The rating card after winning a shared level: title, and what this device said last time (or {}). */
-  showRate(title, { stars = 0, name = '', comment = '' } = {}) {
+  showRate(title, { stars = 0, kind = '', name = '', comment = '' } = {}) {
     this.q('.ui-rate-title').textContent = title;
     this.q('.ui-rate-name').value = name;
     this.q('.ui-rate-comment').value = comment;
     this.rateMessage('');
     this.setStars(stars);
+    this.setKind(kind);
     this.open('rate');
   }
   /** The "are you sure?" card for asking a shared level to come down. */
@@ -288,6 +318,10 @@ export class UI {
     for (const b of this.el.querySelectorAll('[data-star]')) b.classList.toggle('on', +b.dataset.star <= n);
     this.q('.ui-rate-send').disabled = !n;
   }
+  setKind(kind) {
+    this.kind = kind;
+    for (const b of this.el.querySelectorAll('[data-kind]')) b.classList.toggle('on', b.dataset.kind === kind);
+  }
   rateMessage(msg) { this.q('.ui-rate-msg').textContent = msg; }
 
   /** What people said about a level: list [{ stars, name, comment }], or a message instead. */
@@ -300,7 +334,7 @@ export class UI {
       const d = document.createElement('div');
       d.className = 'ui-said-one';
       d.innerHTML = '<span class="st"></span> <b></b><p></p>';
-      d.querySelector('.st').textContent = '★'.repeat(c.stars) + '☆'.repeat(5 - c.stars);
+      d.querySelector('.st').textContent = '★'.repeat(c.stars) + '☆'.repeat(5 - c.stars) + (KIND_NAMES[c.kind] ? ` · ${KIND_NAMES[c.kind]}` : '');
       d.querySelector('b').textContent = c.name || 'Someone';
       d.querySelector('p').textContent = c.comment;
       el.appendChild(d);

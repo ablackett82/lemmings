@@ -1,4 +1,5 @@
 -- npx wrangler d1 execute lemmings-stats --remote --file schema.sql
+-- (a database made before `kind` existed also needs migrations/001-kind.sql, once)
 CREATE TABLE IF NOT EXISTS plays (
   level TEXT PRIMARY KEY,
   attempts INTEGER NOT NULL DEFAULT 0,
@@ -10,6 +11,7 @@ CREATE TABLE IF NOT EXISTS ratings (
   level TEXT NOT NULL,
   device TEXT NOT NULL,
   stars INTEGER NOT NULL,
+  kind TEXT NOT NULL DEFAULT '',          -- the voter's say: fun | tricky | taxing | mayhem | '' (didn't say)
   name TEXT NOT NULL DEFAULT '',
   comment TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'none',   -- none (no comment) | pending | approved | rejected

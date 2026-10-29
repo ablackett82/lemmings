@@ -25,7 +25,7 @@ import { hdIcon, HD_LABELS } from '../render/hdicons.js';
 import { buildCustom, drawLevel, objectKinds, standY, brush, isLiquid } from './build.js';
 import { ghostRun, falls, shot, SAFE_DROP } from './analyse.js';
 import { drawGadget, gadgetBox } from '../game/gadgets.js';
-import { SETS, texture } from './sets.js';
+import { SETS, texture, randomSet } from './sets.js';
 import { originalSpec } from './import.js';
 import { drawPiece } from '../dos/dosdata.js';
 import { newLevel, playKey, LIMITS, check, version } from './format.js';
@@ -156,8 +156,10 @@ export class Editor {
     const dos = this.dos;
     const sets = this.q('.ed-sets');
     sets.innerHTML = dos ? SETS.map((s, i) => `<button type="button" data-set="${i}"><img alt="" src="${this.setPicture(i)}"><span>${s.name}</span></button>`).join('')
+      + '<button type="button" class="ed-random" title="Pick one of them for me"><span class="ed-dice" aria-hidden="true">🎲</span><span>Random</span></button>'
       : '<p class="ed-note">Loading the game’s graphics…</p>';
     for (const b of sets.querySelectorAll('[data-set]')) b.addEventListener('click', () => this.create(+b.dataset.set));
+    sets.querySelector('.ed-random')?.addEventListener('click', () => this.create(randomSet()));
     const orig = this.q('.ed-orig-btn');
     orig.disabled = !dos;
     orig.onclick = () => this.pickOriginal();

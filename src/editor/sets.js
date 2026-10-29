@@ -15,6 +15,11 @@ export const SETS = [
   { name: 'Crystal', steel: [31, 32, 33, 34],  lumps: [25, 26, 8, 11, 12, 28],       texture: 25, exitTop: [8, -8] },
 ];
 
+/** One of the sets, chosen at random (the Random button on a new level). */
+export function randomSet(rand = Math.random) {
+  return Math.min(SETS.length - 1, Math.floor(rand() * SETS.length));
+}
+
 const textures = new WeakMap();
 
 /**
